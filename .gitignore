@@ -33,3 +33,8 @@ PLAN.md
 packages/*/scripts/*.workflow.js
 .claude/reviews/
 .claude/agents/sub-agent.md
+
+# Cloudflare / OpenNext build output
+.open-next/
+.wrangler/
+packages/dashboard/out/
