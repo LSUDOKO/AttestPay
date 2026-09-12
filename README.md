@@ -10,8 +10,11 @@ Agentic spending cards: scoped, revocable payment delegations that any AI agent 
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-Instrumented-3021ff)](https://opentelemetry.io)
 [![Base Mainnet](https://img.shields.io/badge/Base-Mainnet-0052FF)](https://base.org)
 [![ERC-7710](https://img.shields.io/badge/ERC-7710-blue)](https://eips.ethereum.org/EIPS/eip-7710)
+[![Attestcoin](https://img.shields.io/badge/Attestcoin-Creditcoin%20CC3-00d18f)](https://creditcoin.org)
 
 Issue scoped, revocable spending cards from your wallet. Any agent plugs one in and pays within your limits: no keys, no gas, dead the moment you revoke. Built on Smart Accounts (ERC-7710), settled gaslessly by 1Shot, pays the open web with x402, and plugs into any agent over MCP.
+
+Every confirmed payment is then **proven cross-chain onto Creditcoin** via the Attestcoin Protocol — no oracle, no bridge — building public, checkable credit history for the agent that spent. See [Cross-Chain Verification](#cross-chain-verification-attestcoin) for what that proves, and what it does not.
 
 ---
 
@@ -21,6 +24,7 @@ Issue scoped, revocable spending cards from your wallet. Any agent plugs one in 
 - [How a Payment Works](#how-a-payment-works)
 - [Agent Tools](#agent-tools)
 - [Connecting a Card to an Agent](#connecting-a-card-to-an-agent)
+- [Cross-Chain Verification (Attestcoin)](#cross-chain-verification-attestcoin)
 - [Architecture](#architecture)
 - [Contracts](#contracts-base-mainnet)
 - [Observability (SigNoz)](#observability-signoz)
@@ -94,6 +98,12 @@ MCP tools served over Streamable HTTP. The exact set a card exposes matches its 
 | `execute` | Run scoped contract calls (e.g. approve + swap, stake, mint) atomically in one redemption; only on cards with contract scope |
 | `issue_subcard` | Mint a tighter child card for a sub-agent; pay caps and contract scope must both nest inside the parent's |
 | `revoke_subcard` | Instantly kill a sub-card (and its descendants), server-side; for on-chain permanence, revoke the root card or nuke |
+| `verify_payment` | Where a payment has reached in the Attestcoin cross-chain proof pipeline |
+| `payment_receipt` | The full three-chain receipt for one payment, with an explorer link per leg and a plain statement of what the proof establishes |
+| `credit_score` | The card's cross-chain-verified payment history and credit standing on Creditcoin |
+| `cross_chain_status` | Attestcoin protocol health: attestation lag and proof-queue depth |
+
+The last four appear only when cross-chain verification is configured — the tool list is the capability surface, so a card is never offered a tool that can only answer "not configured".
 
 Refusals are typed (`over_period_limit`, `merchant_not_allowed`, `price_exceeds_max`, `per_trade_exceeded`, `exceeds_parent_terms`, `target_not_allowed`, `method_not_allowed`, ...) so agents can relay them honestly instead of guessing.
 
@@ -140,15 +150,157 @@ The client discovers the OAuth lane (RFC 9728 protected-resource metadata on the
 
 ---
 
+## Cross-Chain Verification (Attestcoin)
+
+Every confirmed payment is proven onto **Creditcoin CC3 testnet** using the Attestcoin
+Protocol, turning an AI agent's spending into public, append-only credit history that
+any Creditcoin contract can read without trusting AttestPay.
+
+Full technical write-up: **[docs/attestcoin-integration.md](docs/attestcoin-integration.md)**
+
+### What the proof establishes — and what it does not
+
+This is stated first because the honest version is narrower than "every payment is
+cryptographically verified", and the agent-facing `payment_receipt` tool returns both
+halves verbatim so a model relaying it cannot overstate it.
+
+**Proven, trustlessly:** that a `PaymentAnchored` record with *exactly these field
+values* was included in a block attested by the Attestcoin attestor network. The Block
+Prover precompile checks a Merkle inclusion proof and a block-continuity proof in the
+same Creditcoin transaction that records the result, and `AttestPayASC` decodes the
+payment's fields **out of the proven transaction bytes** — so no relayer, AttestPay's
+server included, can alter a value in flight.
+
+**Not proven:** that the underlying Base payment happened. AttestPay's server writes
+the anchor, so that hop is the server's own attestation. Two things keep it
+accountable: every anchor records the Base `sourceTxHash` so anyone can check the
+payment independently, and it records `anchoredBy` — with the ASC crediting only its
+configured `trustedAnchorer`.
+
+So a verified payment means: *AttestPay asserted this payment on an attested chain, and
+that assertion is now cryptographically immutable, publicly timestamped, attributable
+to a named anchorer, and checkable against the Base transaction it names.* Stronger
+than a private database row; weaker than proving the transfer itself.
+
+### Why the anchor is on Ethereum Sepolia, not Base
+
+Attestcoin on CC3 testnet attests exactly two source chains. Check it yourself:
+
+```bash
+cast call 0x0000000000000000000000000000000000000fd3 "get_supported_chains()" \
+  --rpc-url https://rpc.cc3-testnet.creditcoin.network \
+| xargs cast decode-abi "get_supported_chains()((uint64,uint64,bytes,uint8)[])"
+# [(3, 1, "Ethereum", 1), (1, 11155111, "Sepolia ethereum", 1)]
+```
+
+Base is not among them, so a Base transaction cannot be proven into Creditcoin at all.
+AttestPay's payments execute on Base (the ERC-7710 stack and the 1Shot relayer only
+exist there), so `PaymentAnchor` is deployed on Ethereum Sepolia (`chainKey = 1`) and
+records the Base payment's facts; that anchoring transaction is what gets proven.
+
+### The flow
+
+```
+Base            agent pays USDC ──▶ charge confirmed
+                                         │ onChargeConfirmed (enqueue, ~1ms)
+                                         ▼
+                            attestcoin_proofs (sqlite state machine)
+                            pending → anchoring → anchored → attested → proving → verified
+                                         │
+Eth Sepolia     PaymentAnchor.anchorPayment(...) ──▶ PaymentAnchored event
+                                         │
+                 Attestcoin attestors reach consensus (~8 min, measured)
+                 prover API → { headerNumber, txBytes, merkleProof, continuityProof }
+                                         │
+Creditcoin      AttestPayASC.verifyPayment(height, txBytes, merkle, continuity)
+                  ├─ 0x0FD2 BlockProver.verify(...)        proof checked on-chain
+                  ├─ decode receipt logs from PROVEN bytes  facts bound to the proof
+                  ├─ require anchoredBy == trustedAnchorer
+                  └─ store VerifiedPayment · update AgentCredit · check CardTerms
+```
+
+`pay` never waits for any of this. Attestation takes minutes, so the pipeline is a
+background worker over persisted state: `spend()` only enqueues, via a new
+`onChargeConfirmed` hook that every confirmation path feeds (pay, execute, fiat
+settlement, and the reconcile sweep alike).
+
+### The one design decision that matters
+
+`verifyPayment` takes **the proof and nothing else**.
+
+The natural-looking alternative — `verifyPayment(proof, cardId, amount, from, ...)` —
+is unsound, and it is worth being explicit about why. The proof and the facts would be
+independent, so a valid proof of *any* attested transaction would let a caller staple
+arbitrary payment data to it and mint unlimited "verified" credit history from one real
+proof. Here the facts cannot be separated from the proof, because the facts *are* the
+proven bytes. Three tests pin it down: an impostor anchor's event inside a valid proof
+records nothing, an untrusted anchorer is refused, and a proven-but-reverted
+transaction is not a payment.
+
+### Contracts
+
+| Contract | Chain | Role |
+|---|---|---|
+| `PaymentAnchor.sol` | Ethereum Sepolia | Emits `PaymentAnchored` on an attested chain; guards double-anchoring |
+| `AttestPayASC.sol` | Creditcoin CC3 | Verifies proofs, decodes payments, maintains credit + terms registry |
+| `ProvenTxDecoder.sol` | library | Recovers receipt logs from Attestcoin-encoded transaction bytes |
+| `IBlockProver.sol` | interfaces | The real precompile ABIs (`0x0FD2` prover, `0x0FD3` chain info) |
+
+Foundry project in [`contracts/`](contracts/). `forge test` — 35 tests.
+
+### Agent credit history
+
+Each verified payment updates an `AgentCredit` record against the card tree's **root
+funding account** (sub-cards spend from their root's account, so that is where history
+belongs): payment count, verified volume, first and last payment, and terms compliance.
+
+Compliance is tracked as `withinTermsPayments` over `termsCheckedPayments`, not over
+`totalPayments` — so **a card with no registered terms does not score a free 100%**.
+With nothing to comply with, a payment is neither credited nor penalised, and terms
+registered after a payment are not applied retroactively.
+
+The letter grade is a published formula over three capped inputs — payment count (≤40),
+verified volume (≤30), history length in days (≤30), scaled by the within-terms rate
+where terms exist. It is a readable summary of public on-chain facts, **not a risk
+model**, and it is labelled that way everywhere it appears, including in the tool
+output.
+
+### Observability
+
+The pipeline is slow and multi-hop, so each stage is separately traced — "it didn't
+verify" is useless on its own; the question is which hop stalled.
+
+Spans `attestcoin.anchor`, `.proof_generation`, `.proof_submission`, `.register_terms`,
+`attestcoin_sweep`. Metrics include `attestpay.attestcoin.attestation_wait_seconds`,
+`.proof_generation_seconds`, `.proof_submission_seconds`, `.end_to_end_seconds` and
+`.attestation_lag_blocks`, plus counters for anchors written, proofs generated,
+verified, and failed (tagged by stage).
+
+### Setup
+
+Optional and off by default: with no Attestcoin variables set, AttestPay behaves
+exactly as it did before — the four tools are simply not offered, and the dashboard's
+Cross-Chain pane says so. See [`.env.example`](.env.example) for the variables and
+[docs/attestcoin-integration.md](docs/attestcoin-integration.md#13-deployment) for the
+deploy steps. At boot the server verifies the deployed ASC agrees with its own
+configuration (same chain key, anchor and anchorer) and reports a mismatch loudly,
+once, rather than letting it surface one stuck payment at a time.
+
+---
+
 ## Architecture
 
 Bun monorepo, three packages:
 
 ```
 packages/
-  engine/     pure core: caveat compiler, issuance, spend, redelegation, revocation
-  server/     Hono: REST API + MCP endpoint + x402 facilitator + demo seller + Stripe webhook
-  dashboard/  Next.js: Privy login, one-screen cockpit (card deck + dossier, light/dark), NL issue modal (client-signed), demo shop
+  engine/     pure core: caveat compiler, issuance, spend, redelegation, revocation,
+              and attestcoin/ — the cross-chain proof pipeline
+  server/     Hono: REST API + MCP endpoint + x402 facilitator + demo seller + Stripe webhook,
+              plus the Attestcoin proof worker
+  dashboard/  Next.js: Privy login, one-screen cockpit (card deck + dossier, light/dark),
+              NL issue modal (client-signed), demo shop, Cross-Chain pane
+contracts/    Foundry: PaymentAnchor (Ethereum Sepolia) + AttestPayASC (Creditcoin CC3)
 ```
 
 Key pieces:
@@ -160,6 +312,7 @@ Key pieces:
 - **Sub-cards**: ERC-7710 redelegations. Caps only narrow. Revoking a parent kills the subtree.
 - **Two payment rails off one delegation**: x402 (real USDC, live) and Stripe Issuing real-time auth (test mode, fiat leg simulated honestly).
 - **MCP server**: stateless Streamable HTTP, identity = the card credential on every request, no sessions.
+- **Cross-chain verification** (`engine/src/attestcoin/`): a persisted state machine that anchors each confirmed payment on an attested chain and proves it into Creditcoin. Entered through a single `onChargeConfirmed` hook on `SpendDeps`, so every confirmation path feeds it; run by a background worker, because attestation takes minutes and `pay` must return in seconds. See [Cross-Chain Verification](#cross-chain-verification-attestcoin).
 - **OAuth lane** (`server/src/oauth/`): a self-hosted OAuth 2.1 authorization server (RFC 9728 + RFC 8414 discovery, RFC 7591 dynamic client registration, PKCE S256, RFC 8707 resource binding, rotating refresh tokens, RFC 7009 revocation). Login and the card-picker consent reuse the existing Privy dashboard session; issued tokens are opaque, card-scoped, hash-stored beside the card secrets, and die when the card is revoked.
 
 ### Contracts (Base mainnet)
@@ -169,6 +322,13 @@ Key pieces:
 | DelegationManager | `0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3` |
 | Stateless7702 delegator impl | `0x63c0c19a282a1B52b07dD5a65b58948A07DAE32B` |
 | USDC | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
+
+### Attestcoin precompiles (Creditcoin CC3 testnet, chain 102031)
+
+| Precompile | Address | Role |
+|---|---|---|
+| Block Prover | `0x0000000000000000000000000000000000000FD2` | Verifies Merkle inclusion + block continuity proofs on-chain |
+| Chain Info | `0x0000000000000000000000000000000000000fD3` | Supported source chains, attestation heights (snake_case ABI) |
 
 ---
 
@@ -393,9 +553,23 @@ Plug the `card_url` into an agent and it can spend.
 ## Tests
 
 ```bash
-bun test                 # engine + server suites
+bun test                 # engine + server suites (408 tests)
 bun run typecheck        # per-package tsc
+cd contracts && forge test   # Solidity suite (35 tests)
 ```
+
+Attestcoin-specific suites:
+
+```bash
+cd contracts && forge test                        # proofs, impostor anchors, replay, terms
+bun test packages/engine/test/attestcoin.test.ts  # proof state machine, grading, config
+bun test packages/server/test/attestcoin.test.ts  # routes + tools, configured AND not
+```
+
+The server suite runs the whole Attestcoin surface in **both** configurations. The
+disabled case is the one that protects existing deployments: it asserts that a server
+which never configures Attestcoin is unchanged, that every route still answers with
+`configured: false`, and that the four cross-chain tools are absent.
 
 ---
 
@@ -431,9 +605,23 @@ bun run typecheck        # per-package tsc
 | `ATTESTPAY_OAUTH_REDIRECT_HOSTS` | no | if set, restricts OAuth `https` redirect-URI hosts to this allowlist (loopback + custom schemes always allowed; recommended in prod) |
 | `ATTESTPAY_OAUTH_ACCEPTED_RESOURCES` | no | extra RFC 8707 resource URIs still honored (legacy values during a base-URL migration) |
 | `ATTESTPAY_TRUST_PROXY_HOPS` | no | trusted proxy hops for client-IP rate limiting (default 1 = Railway edge; 0 disables XFF trust) |
+| `ATTESTPAY_PAYMENT_ANCHOR_ADDRESS` | attestcoin | `PaymentAnchor` on Ethereum Sepolia; one of three values required to enable cross-chain verification |
+| `ATTESTPAY_ASC_ADDRESS` | attestcoin | `AttestPayASC` on Creditcoin CC3 testnet |
+| `ATTESTPAY_ATTESTCOIN_PRIVATE_KEY` | attestcoin | signer for both legs (needs Sepolia ETH + tCTC); must match the ASC's `trustedAnchorer` |
+| `ATTESTPAY_ATTESTCOIN_CHAIN_KEY` | no | Attestcoin source-chain key, **not** an EVM chain id (default 1 = Ethereum Sepolia; 3 = mainnet) |
+| `ATTESTPAY_SEPOLIA_RPC` | no | source-chain RPC where `PaymentAnchor` lives |
+| `ATTESTPAY_CREDITCOIN_HTTP_RPC` | no | Creditcoin CC3 RPC (HTTP, not WebSocket: the USC SDK needs a `JsonRpcApiProvider`) |
+| `ATTESTPAY_PROVER_API_URL` | no | Attestcoin proof generator API |
+| `ATTESTPAY_ATTESTCOIN_SWEEP_INTERVAL_MS` | no | proof worker tick (default 60000; 0 stops it, so payments queue but never verify) |
+| `ATTESTPAY_ATTESTCOIN_BATCH_SIZE` | no | rows advanced per tick (default 10) |
+| `ATTESTPAY_ATTESTCOIN_ENABLED` | no | set to `0` to force the integration off even when fully configured |
 | `NEXT_PUBLIC_PRIVY_APP_ID` / `NEXT_PUBLIC_PRIVY_CLIENT_ID` | dashboard | Privy app credentials (public identifiers, not secrets) |
 | `NEXT_PUBLIC_ATTESTPAY_API` | dashboard | server API base, e.g. `http://localhost:4070/api` |
 | `NEXT_PUBLIC_BASE_RPC` | dashboard | Base RPC for client-side reads |
+
+Cross-chain verification is optional: leave the three `attestcoin` rows blank and
+AttestPay runs exactly as it does without the integration. The server logs which
+variables are missing at boot rather than no-oping silently.
 
 The dashboard carries no shared secret: every API call sends the signed-in user's Privy session token, which the server verifies and scopes. The deployed dashboard origin must be listed in the server's `ATTESTPAY_CORS_ORIGINS`.
 
@@ -471,6 +659,7 @@ Catalog prices are all $5 or less because approved purchases move real USDC.
 
 | Document | Contents |
 |---|---|
+| [docs/attestcoin-integration.md](docs/attestcoin-integration.md) | The Attestcoin Protocol integration in full: trust model, contracts, the proof pipeline, credit scoring, and commands to verify every protocol claim yourself |
 | [docs/architecture.md](docs/architecture.md) | Full system architecture with all 16 SigNoz use cases (traces, metrics, logs, dashboards, alerts, saved views, cost control, service map, SigNoz MCP) |
 | [docs/signoz-verification.md](docs/signoz-verification.md) | Step-by-step guide to verify every SigNoz feature in the live deployment |
 | [docs/blog-post.md](docs/blog-post.md) | The observability story: instrumenting agentic payments with OpenTelemetry + SigNoz |

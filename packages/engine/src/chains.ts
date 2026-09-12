@@ -38,9 +38,13 @@ export const LOGICAL_OR_WRAPPER = "0xE1302607a3251AF54c3a6e69318d6aa07F5eB46c" a
 export const SWAP_ROUTER_02 = "0x2626664c2603336E57B271c5C0b26F421741e481" as Address;
 export const WETH = "0x4200000000000000000000000000000000000006" as Address;
 
-// RPC: attestpay_RPC_URL (Alchemy in dev/prod) with public fallback.
+// RPC: ATTESTPAY_RPC_URL (Alchemy in dev/prod) with public fallback.
+//
+// The name is case-sensitive and must match `.env.example`. This read was previously
+// spelled in lowercase, so the configured RPC was never picked up and every call
+// silently used the public endpoint — which rate-limits under load.
 export function rpcUrl(chainId: ChainId = CHAIN_ID): string {
-  if (chainId === CHAIN_ID && process.env.attestpay_RPC_URL) return process.env.attestpay_RPC_URL;
+  if (chainId === CHAIN_ID && process.env.ATTESTPAY_RPC_URL) return process.env.ATTESTPAY_RPC_URL;
   return chainId === 8453 ? "https://mainnet.base.org" : "https://sepolia.base.org";
 }
 
