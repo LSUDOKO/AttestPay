@@ -17,9 +17,9 @@
     "@privy-io/react-auth": "^3",
     "motion": "^12.40.0",
     "next": "16.3.5",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "viem": "2.52.0"
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "viem": "2.56.3"
   },
   "devDependencies": {
     "@opennextjs/cloudflare": "1.20.6",
@@ -27,6 +27,6 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "typescript": "^5",
-    "wrangler": "4.125.0"
+    "wrangler": "4.130.0"
   }
 }
