@@ -16,6 +16,7 @@ import { OAuthStore } from "./oauth/store";
 import { sellerRoutes } from "./seller/routes";
 import { stripeRoutes } from "./stripe/routes";
 import { shopRoutes } from "./shop/routes";
+import { publicPassportRoutes } from "./attestcoin/credit-routes";
 
 export function createApp(deps: AppDeps): Hono {
   const app = new Hono();
@@ -75,6 +76,10 @@ export function createApp(deps: AppDeps): Hono {
       allowMethods: ["GET", "POST", "OPTIONS"],
     }),
   );
+
+  // the credit passport is public by design (any origin may read and verify one)
+  app.use("/passport/*", cors({ origin: "*", allowHeaders: ["content-type"], allowMethods: ["GET", "POST", "OPTIONS"] }));
+  app.route("/", publicPassportRoutes(deps));
 
   app.route("/", oauthRoutes(deps, oauth));
   app.route("/", mcpRoutes(deps, oauth));

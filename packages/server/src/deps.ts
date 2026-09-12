@@ -157,25 +157,59 @@ export function registerTermsInBackground(deps: AppDeps, cardId: string): void {
     });
 }
 
-/** Marks a card's registered terms revoked on Creditcoin, fire-and-forget.
+/** Marks a card's registered terms revoked on Creditcoin, fire-and-forget, and
+ * queues the PROVEN revocation fact when the ledger is configured.
  *
  * The ASC keeps the terms record (history must not vanish) and flips `active` to
  * false. Best-effort for the same reason as registration: a card's revocation on Base
- * is what actually stops it spending, and that must never be blocked on Creditcoin. */
+ * is what actually stops it spending, and that must never be blocked on Creditcoin.
+ *
+ * The proven fact is what gives counterparties a checkable `revokedAt`: the ASC flag
+ * says a card was revoked, `AttestPayLedger.cardRevokedAt` says WHEN, from attested
+ * bytes, so "was this card live when it paid me?" has an answer nobody has to take
+ * AttestPay's word for. */
 export function revokeTermsInBackground(deps: AppDeps, cardId: string): void {
   const ac = deps.attestcoin;
   if (!ac?.client) return;
   void ac.client.revokeCardTerms(cardId).catch(() => {
     /* best-effort: the on-Base revocation is the one that stops spending */
   });
+  if (attestcoin.attestcoinFeatures(ac.client.config).disputes) {
+    try {
+      attestcoin.enqueueCardRevocation({ store: deps.store, attestcoin: ac.store }, cardId, Math.floor(Date.now() / 1000));
+    } catch {
+      /* the local revocation already happened; the fact is a record of it */
+    }
+  }
 }
 
-/** The confirmed-charge hook: enqueues a charge for cross-chain verification, or
- * does nothing when Attestcoin is not configured. */
+/** Registers a fully signed credit line on Creditcoin, fire-and-forget. The sweep
+ * retries anything this misses (process restart, transient RPC failure). */
+export function openLineInBackground(deps: AppDeps, lineId: string): void {
+  const ac = deps.attestcoin;
+  if (!ac?.client || !attestcoin.attestcoinFeatures(ac.client.config).credit) return;
+  const client = ac.client;
+  void attestcoin
+    .openLineOnChain({ attestcoin: ac.store, client }, lineId, Math.floor(Date.now() / 1000))
+    .then((r) => {
+      if (!r.ok) console.error(`[attestcoin] credit line ${lineId} registration failed: ${r.error}`);
+    })
+    .catch(() => {
+      /* recorded on the line row; the sweep retries */
+    });
+}
+
+/** The confirmed-charge hook: enqueues a charge for cross-chain verification, and
+ * — when the charge is a credit-line draw or repayment — the fact that proves it.
+ * Does nothing when Attestcoin is not configured. */
 export function enqueueForVerification(deps: AppDeps): (chargeId: string, cardId: string) => void {
   return (chargeId, cardId) => {
     const ac = deps.attestcoin;
     if (!ac?.client) return;
-    ac.store.enqueue(chargeId, cardId, Math.floor(Date.now() / 1000));
+    const now = Math.floor(Date.now() / 1000);
+    ac.store.enqueue(chargeId, cardId, now);
+    if (attestcoin.attestcoinFeatures(ac.client.config).credit) {
+      attestcoin.enqueueLineFactForCharge({ store: deps.store, attestcoin: ac.store, config: ac.client.config }, chargeId, now);
+    }
   };
 }

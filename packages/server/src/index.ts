@@ -66,12 +66,30 @@ if (acDeps?.client) {
   const client = acDeps.client;
   const acStore = acDeps.store;
 
-  // Check the deployment agrees with this process BEFORE doing any work. An ASC wired
-  // to a different anchor or anchorer rejects every proof, and finding that out once
-  // at boot beats discovering it one stuck payment at a time.
-  void client
-    .checkDeployment()
-    .then(({ ok, problems }) => {
+  // Resolve the chain key against the live registry, THEN check the deployment
+  // agrees with this process, all before doing any work. In `auto` mode the registry
+  // decides which source chain is anchored; in `env` mode disagreements are reported.
+  // An ASC wired to a different anchor or anchorer rejects every proof, and finding
+  // that out once at boot beats discovering it one stuck payment at a time.
+  let ready = false;
+  const boot = (async () => {
+    try {
+      const r = await client.resolveChainKey();
+      console.log(
+        `[attestcoin] chain key ${r.chainKey} (${r.source}) · source chain ${r.sourceChainId} · attested chains: ${r.chains
+          .map((c) => `${c.chainKey}=${c.chainId}(${c.name})`)
+          .join(", ") || "unknown"} · payment chain ${client.config.paymentChainId} attested: ${r.paymentChainAttested}`,
+      );
+      for (const p of r.problems) console.error(`[attestcoin] CHAIN KEY WARNING: ${p}`);
+    } catch (e) {
+      console.error(`[attestcoin] chain key resolution failed: ${e instanceof Error ? e.message : String(e)}`);
+      if (client.config.chainKeyMode === "auto") {
+        console.error("[attestcoin] chain key is 'auto' and could not be resolved: the worker will NOT run");
+        return;
+      }
+    }
+    try {
+      const { ok, problems } = await client.checkDeployment();
       if (ok) {
         console.log(`[attestcoin] deployment check OK · anchorer=${client.anchorerAddress}`);
       } else {
@@ -80,23 +98,32 @@ if (acDeps?.client) {
           "[attestcoin] the worker will keep running, but proofs are likely to be rejected until this is fixed",
         );
       }
-    })
-    .catch((e) => {
-      console.error(
-        `[attestcoin] deployment check could not run: ${e instanceof Error ? e.message : String(e)}`,
-      );
-    });
+    } catch (e) {
+      console.error(`[attestcoin] deployment check could not run: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    const f = attestcoin.attestcoinFeatures(client.config);
+    console.log(
+      `[attestcoin] features · credit=${f.credit} disputes=${f.disputes} guarantee=${f.guarantee} passport=${f.passport}`,
+    );
+    ready = true;
+  })();
 
   const sweepMs = envInt("ATTESTPAY_ATTESTCOIN_SWEEP_INTERVAL_MS", 60_000);
+  const workerDeps = () => ({
+    store: deps.store,
+    attestcoin: acStore,
+    client,
+    batchSize: envInt("ATTESTPAY_ATTESTCOIN_BATCH_SIZE", 10),
+  });
   const runAttestcoinSweep = () =>
     otel.startActiveSpan("attestcoin_sweep", async (span) => {
       try {
-        const r = await attestcoin.sweepProofs({
-          store: deps.store,
-          attestcoin: acStore,
-          client,
-          batchSize: envInt("ATTESTPAY_ATTESTCOIN_BATCH_SIZE", 10),
-        });
+        await boot;
+        if (!ready) {
+          span.setAttribute("skipped", true);
+          return;
+        }
+        const r = await attestcoin.sweepProofs(workerDeps());
         span.setAttribute("examined", r.examined);
         span.setAttribute("advanced", r.advanced);
         span.setAttribute("verified", r.verified);
@@ -106,6 +133,26 @@ if (acDeps?.client) {
           console.log(
             `[attestcoin] sweep: ${r.verified} verified, ${r.failed} failed, ${r.waiting} waiting (${r.examined} examined)`,
           );
+        }
+        // Facts (draws, repayments, disputes, revocations) share the state machine
+        // but have their own queue, so a stuck payment never blocks a dispute.
+        if (attestcoin.attestcoinFeatures(client.config).credit || attestcoin.attestcoinFeatures(client.config).disputes) {
+          const f = await attestcoin.sweepFacts(workerDeps());
+          span.setAttribute("facts_examined", f.examined);
+          span.setAttribute("facts_verified", f.verified);
+          span.setAttribute("facts_failed", f.failed);
+          if (f.verified || f.failed) {
+            console.log(`[attestcoin] facts: ${f.verified} verified, ${f.failed} failed, ${f.waiting} waiting`);
+          }
+        }
+        // Credit lines: register signed lines, settle expired ones.
+        if (attestcoin.attestcoinFeatures(client.config).credit) {
+          const l = await attestcoin.sweepCreditLines({ attestcoin: acStore, client }, Math.floor(Date.now() / 1000));
+          span.setAttribute("lines_opened", l.opened);
+          span.setAttribute("lines_defaulted", l.defaulted);
+          if (l.opened || l.defaulted || l.closed) {
+            console.log(`[attestcoin] lines: ${l.opened} opened, ${l.defaulted} defaulted, ${l.closed} closed`);
+          }
         }
       } catch (e) {
         // sweepProofs is already internally defensive; this is the last resort so a

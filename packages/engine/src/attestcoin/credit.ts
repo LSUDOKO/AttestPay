@@ -33,7 +33,7 @@ import type { AttestcoinClient } from "./client";
 import type { AttestcoinStore } from "./store";
 import type { AttestcoinConfig } from "./config";
 import type { CreditLineEventRow, CreditLineRow } from "./types";
-import { payerForCard } from "./worker";
+import { payerForCard, syncLineFromChain } from "./worker";
 
 /** EIP-712 types, mirroring `AttestPayCreditLine.LINE_TYPEHASH` exactly. */
 export const CREDIT_LINE_TYPES = {
@@ -399,4 +399,40 @@ export function drawableLinesForCard(store: Store, ac: AttestcoinStore, cardId: 
   const borrower = borrowerAddressForCard(store, cardId);
   if (!borrower) return [];
   return ac.listLinesByBorrower(borrower).filter((l) => availableAtoms(l, now) > 0n || outstandingAtoms(l) > 0n);
+}
+
+/** The periodic credit-line sweep: registers lines whose signatures are complete and
+ * advances lines past their expiry (close if never drawn, default if a balance
+ * remains). Each line is handled independently so one bad line cannot stall the
+ * rest; failures are recorded on the row and the next tick tries again. */
+export async function sweepCreditLines(
+  deps: { attestcoin: AttestcoinStore; client: AttestcoinClient },
+  now: number,
+): Promise<{ opened: number; defaulted: number; closed: number; errors: number }> {
+  const result = { opened: 0, defaulted: 0, closed: 0, errors: 0 };
+
+  for (const line of deps.attestcoin.linesAwaitingOpen(5)) {
+    const r = await openLineOnChain(deps, line.id, now);
+    if (r.ok) result.opened += 1;
+    else result.errors += 1;
+  }
+
+  for (const line of deps.attestcoin.linesPastExpiry(now, 10)) {
+    try {
+      await syncLineFromChain(deps, line.id, now);
+      const fresh = deps.attestcoin.getLine(line.id)!;
+      if (fresh.status === "open") {
+        await deps.client.settleExpiredLine(line.id, "close");
+        result.closed += 1;
+      } else if (fresh.status === "active" && outstandingAtoms(fresh) > 0n) {
+        await deps.client.settleExpiredLine(line.id, "default");
+        result.defaulted += 1;
+      }
+      await syncLineFromChain(deps, line.id, now);
+    } catch (e) {
+      result.errors += 1;
+      deps.attestcoin.updateLine(line.id, { error: e instanceof Error ? e.message : String(e) }, now);
+    }
+  }
+  return result;
 }

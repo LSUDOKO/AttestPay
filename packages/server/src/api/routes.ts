@@ -49,6 +49,7 @@ import { appendRedirectParams } from "../oauth/routes";
 import type { OAuthStore } from "../oauth/store";
 import { onboardProofMessage } from "./privy";
 import { attestcoinRoutes } from "../attestcoin/routes";
+import { creditRoutes, type Actor } from "../attestcoin/credit-routes";
 import { compileIntent } from "../venice/compiler";
 import { basescanLookup, registryResolvers } from "../venice/resolvers";
 import { errorsTotal, emitCardLog, emitErrorLog } from "@attestpay/engine";
@@ -720,6 +721,16 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
   // router's auth middleware, and handed `ownedCard`/`handle` so card scoping and
   // error mapping stay defined in exactly one place.
   app.route("/", attestcoinRoutes(deps, ownedCard, handle));
+
+  // Credit lines, disputes, guarantees and the owner-side passport. Needs to know WHO
+  // is acting (a line has a lender and a borrower), so it also receives the actor
+  // resolver: the ops token picks a user like every other admin route, the Privy
+  // lane is pinned to its bound wallet.
+  const actor = (c: Context<{ Variables: { auth: AuthCtx } }>, requested?: string): Actor =>
+    c.get("auth").kind === "admin"
+      ? { kind: "admin", userId: normUserId(requested ?? "elpabl0-dev") }
+      : { kind: "privy", user: boundUser(c) };
+  app.route("/", creditRoutes(deps, ownedCard, handle, actor));
 
   app.get("/tree", (c) =>
     handle(c, async () => {

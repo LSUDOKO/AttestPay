@@ -40,6 +40,7 @@ import {
 import type { AppDeps } from "../deps";
 import { registerTermsInBackground, revokeTermsInBackground, spendDeps, spendKey } from "../deps";
 import { registerAttestcoinTools } from "./attestcoin-tools";
+import { registerCreditTools } from "./credit-tools";
 import { recentFiatDecision } from "../stripe/decisions";
 
 const SERVER_INFO = { name: "attestpay", version: "0.18.0" };  // Surfaced to clients at initialize. Claude Code's tool search (default-on since mid-2026)
@@ -47,7 +48,7 @@ const SERVER_INFO = { name: "attestpay", version: "0.18.0" };  // Surfaced to cl
   const INSTRUCTIONS = [
     "remit is the agent's spending card: a scoped, revocable spending authority granted by the card owner. The connection itself is the card; it holds no funds of its own and every action is checked against the card's terms (per-payment cap, period budget, expiry, allowlists).",
     "Tools: `card` reports status, terms and remaining budget (check it before the first spend). `pay` sends USDC to a recipient or settles an x402 payment requirement. `paid_fetch` fetches an HTTP resource and pays its 402 challenge automatically. `execute` calls an allowlisted contract within the card's contract terms. `issue_subcard` mints a narrower child card for a sub-agent and returns its connection URL (treat it as a secret). `revoke_subcard` kills a child card and its descendants instantly. On fiat-linked cards, `fiat_pay` buys over Visa rails (simulated, test mode) from the same budget, `card_credentials` reveals the linked test Visa, `shop_products` lists the Stripe product catalog, and `shop_buy` purchases a product from the catalog using the linked Visa.",
-    "When cross-chain verification is enabled this card also exposes `verify_payment` (where a payment has reached in the Attestcoin proof pipeline), `payment_receipt` (the full Base + anchor + Creditcoin receipt for one payment), `credit_score` (the card's verified on-chain history on Creditcoin) and `cross_chain_status` (attestation lag and proof queue health). Verification is automatic and takes a few minutes; an unverified recent payment is normally still waiting, not broken.",
+    "With cross-chain verification on, the card also has `verify_payment` (proof pipeline stage), `payment_receipt` (Base + anchor + Creditcoin receipt), `credit_score` (verified history on Creditcoin) and `cross_chain_status` (attestation lag, queue health). Verification takes minutes; a recent unverified payment is waiting, not broken. With credit on: `credit_lines`, `draw_credit` (the lender's card pays this account), `repay_credit`, `dispute_payment`, and `credit_passport` (signed on-chain standing).",
     "A frozen card still answers `card` but refuses spends. Refusals name the violated term; read the message before retrying.",
   ].join("\n\n");
 
@@ -624,6 +625,9 @@ export function buildMcpServer(deps: AppDeps, card: CardRow): McpServer {
   // A card on a deployment without Attestcoin never sees them, keeping the tool list
   // an honest description of what this card can actually do.
   registerAttestcoinTools(server, deps, card, run);
+  // Credit lines, disputes and the passport ride the same gate: offered only when
+  // their contracts are configured, so the tool list stays an honest capability list.
+  registerCreditTools(server, deps, card, run);
 
   return server;
 }
