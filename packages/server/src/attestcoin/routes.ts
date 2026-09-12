@@ -14,7 +14,7 @@ import type { AppDeps } from "../deps";
 
 /** Resolves a card the caller is allowed to see, or throws the parent router's
  * not-found refusal. Supplied by api/routes.ts — ownership is defined once, there. */
-export type OwnedCardResolver = (c: Context<ApiEnv>, id: string) => CardRow;
+export type OwnedCardResolver = (c: Context<ApiEnv>, id: string, level?: "read" | "control" | "manage") => CardRow;
 
 /** Wraps a handler in the parent router's error mapping. Supplied by api/routes.ts. */
 export type Handle = (c: Context<ApiEnv>, fn: () => Promise<unknown>) => Promise<Response>;
@@ -49,7 +49,7 @@ export function attestcoinRoutes(
   // work when the Creditcoin RPC is down.
   app.get("/cards/:id/attestcoin-proofs", (c) =>
     handle(c, async () => {
-      const card = ownedCard(c, c.req.param("id"));
+      const card = ownedCard(c, c.req.param("id"), "read");
       const s = store();
       if (!s) return { configured: false, items: [], stats: null };
 
@@ -111,7 +111,7 @@ export function attestcoinRoutes(
   // local row when Creditcoin is unreachable rather than failing the request.
   app.get("/cards/:id/attestcoin-proofs/:chargeId", (c) =>
     handle(c, async () => {
-      const card = ownedCard(c, c.req.param("id"));
+      const card = ownedCard(c, c.req.param("id"), "read");
       const s = store();
       const row = s?.get(c.req.param("chargeId"));
       if (!row || row.card_id !== card.id) {
@@ -172,7 +172,7 @@ export function attestcoinRoutes(
   // on its next tick, keeping one code path for all verification.
   app.post("/cards/:id/attestcoin-verify", (c) =>
     handle(c, async () => {
-      const card = ownedCard(c, c.req.param("id"));
+      const card = ownedCard(c, c.req.param("id"), "control");
       const s = store();
       const cl = client();
       if (!s || !cl) {
@@ -212,7 +212,7 @@ export function attestcoinRoutes(
 
   app.get("/cards/:id/credit-score", (c) =>
     handle(c, async () => {
-      const card = ownedCard(c, c.req.param("id"));
+      const card = ownedCard(c, c.req.param("id"), "read");
       const s = store();
       const cl = client();
       if (!s || !cl) {

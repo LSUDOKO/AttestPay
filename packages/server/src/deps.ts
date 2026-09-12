@@ -20,6 +20,7 @@ import { makeFiatSettler, type FiatSettler } from "./stripe/settlement";
 import { veniceChat, type ChatFn } from "./venice/client";
 import { EventBus } from "./events/bus";
 import { EventStore } from "./events/store";
+import { TeamStore } from "./teams/store";
 
 export type AppDeps = {
   store: Store;
@@ -54,6 +55,8 @@ export type AppDeps = {
   /** Events, webhooks, audit log and budget alerts. Absent in fakes that don't need
    * them; every consumer treats it as optional. */
   events?: EventBus;
+  /** Teams and roles over cards. Optional like the rest; absent means owner-only access. */
+  teams?: TeamStore;
 };
 
 /** Numeric env with a default that survives the empty string. `Number(x ?? d)` is a trap:
@@ -87,6 +90,7 @@ export function realDeps(): AppDeps {
     stripe: makeStripeClient(),
     attestcoin: { store: acStore, client: null },
     events: new EventBus(new EventStore(store.db), store),
+    teams: new TeamStore(store.db),
   };
 
   // Attestcoin is optional. A misconfiguration must disable the cross-chain leg

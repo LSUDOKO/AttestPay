@@ -51,6 +51,8 @@ import { onboardProofMessage } from "./privy";
 import { attestcoinRoutes } from "../attestcoin/routes";
 import { creditRoutes, type Actor } from "../attestcoin/credit-routes";
 import { eventRoutes } from "../events/routes";
+import { teamRoutes } from "../teams/routes";
+import { roleAllows, type AccessLevel } from "../teams/store";
 import { compileIntent } from "../venice/compiler";
 import { basescanLookup, registryResolvers } from "../venice/resolvers";
 import { errorsTotal, emitCardLog, emitErrorLog } from "@attestpay/engine";
@@ -187,17 +189,32 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
   const scopedUserId = (c: Context<{ Variables: { auth: AuthCtx } }>, requested?: string): string =>
     c.get("auth").kind === "admin" ? normUserId(requested ?? "elpabl0-dev") : boundUser(c).id;
 
-  /** Card lookup that refuses to reveal other users' cards (same shape as not-found). */
-  const ownedCard = (c: Context<{ Variables: { auth: AuthCtx } }>, id: string): CardRow => {
+  /** Card lookup that refuses to reveal other users' cards (same shape as not-found).
+   *
+   * `level` is what the caller intends to do. The card's owner may do anything; a
+   * team member may do what their role allows (teams/store.ts). The default is the
+   * strictest level, so a call site that does not say what it needs stays owner-only
+   * — loosening is explicit, never accidental. */
+  const ownedCard = (c: Context<{ Variables: { auth: AuthCtx } }>, id: string, level: AccessLevel = "manage"): CardRow => {
     const card = deps.store.getCard(id);
-    if (!card || (c.get("auth").kind === "privy" && card.user_id !== boundUser(c).id)) {
-      throw new RefusalError("card_not_found", "no such card");
-    }
-    return card;
+    if (!card) throw new RefusalError("card_not_found", "no such card");
+    if (c.get("auth").kind === "admin") return card;
+    const me = boundUser(c).id;
+    if (card.user_id === me) return card;
+    if (deps.teams && roleAllows(deps.teams.roleOnCard(card.id, me), level)) return card;
+    throw new RefusalError("card_not_found", "no such card");
   };
 
   const adminOnly = (c: Context<{ Variables: { auth: AuthCtx } }>): void => {
     if (c.get("auth").kind !== "admin") throw new ForbiddenError("admin token required");
+  };
+
+  /** The team a card is assigned to, for list and detail views. */
+  const teamTag = (cardId: string): { team_id: string; name: string } | null => {
+    const ct = deps.teams?.teamOfCard(cardId);
+    if (!ct) return null;
+    const t = deps.teams!.getTeam(ct.team_id);
+    return t ? { team_id: t.id, name: t.name } : null;
   };
 
   /** Records a card action in the audit log and emits its event. Never throws and
@@ -402,24 +419,44 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
   app.get("/cards", (c) =>
     handle(c, async () => {
       const userId = scopedUserId(c, c.req.query("userId"));
-      return deps.store.listCards(userId).map((card) => ({
+      const own = deps.store.listCards(userId).map((card) => ({
         ...cardState(deps.store, card.id, now()),
         parent_card_id: card.parent_card_id,
         created_at: card.created_at,
+        team: teamTag(card.id),
+        your_role: "owner" as const,
       }));
+      // Cards reached through a team, with the role that governs what the caller
+      // may do. Owned cards are never listed twice.
+      const ownIds = new Set(own.map((c) => c.card_id));
+      const shared = (deps.teams?.teamCardsOf(userId) ?? [])
+        .filter((t) => !ownIds.has(t.card_id))
+        .map((t) => {
+          const card = deps.store.getCard(t.card_id);
+          const state = card ? cardState(deps.store, card.id, now()) : null;
+          return state && card
+            ? { ...state, parent_card_id: card.parent_card_id, created_at: card.created_at, team: { team_id: t.team_id, name: t.team_name }, your_role: t.role }
+            : null;
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+      return [...own, ...shared];
     }),
   );
 
   app.get("/cards/:id", (c) =>
     handle(c, async () => {
-      const card = ownedCard(c, c.req.param("id"));
+      const card = ownedCard(c, c.req.param("id"), "read");
       const state = cardState(deps.store, card.id, now());
       if (!state) throw new RefusalError("card_not_found", "no such card");
       const charges = deps.store.listCharges(card.id, 50);
+      const auth = c.get("auth");
+      const me = auth.kind === "privy" ? boundUser(c).id : null;
       return {
         ...state,
         parent_card_id: card.parent_card_id,
         k_agent_address: card.k_agent_address,
+        team: teamTag(card.id),
+        your_role: me === null || card.user_id === me ? "owner" : (deps.teams?.roleOnCard(card.id, me) ?? "viewer"),
         charges: charges.map((ch) => ({
           id: ch.id,
           kind: ch.kind,
@@ -493,7 +530,7 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
 
   app.post("/cards/:id/freeze", (c) =>
     handle(c, async () => {
-      const frozenId = ownedCard(c, c.req.param("id")).id;
+      const frozenId = ownedCard(c, c.req.param("id"), "control").id;
       freezeCard(deps.store, frozenId);
       note(c, "card.frozen", "card.frozen", frozenId);
       return { status: "frozen" };
@@ -502,7 +539,7 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
 
   app.post("/cards/:id/unfreeze", (c) =>
     handle(c, async () => {
-      const thawedId = ownedCard(c, c.req.param("id")).id;
+      const thawedId = ownedCard(c, c.req.param("id"), "control").id;
       unfreezeCard(deps.store, thawedId);
       note(c, "card.unfrozen", "card.unfrozen", thawedId);
       return { status: "active" };
@@ -769,6 +806,7 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
       : { kind: "privy", user: boundUser(c) };
   app.route("/", creditRoutes(deps, ownedCard, handle, actor));
   app.route("/", eventRoutes(deps, ownedCard, handle, actor));
+  app.route("/", teamRoutes(deps, ownedCard, handle, actor));
 
   app.get("/tree", (c) =>
     handle(c, async () => {

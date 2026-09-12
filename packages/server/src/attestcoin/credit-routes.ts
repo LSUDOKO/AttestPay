@@ -16,7 +16,7 @@ import { RateLimiter, clientIp } from "../ratelimit";
 import { envInt } from "../deps";
 import { creditDeps, executeDraw, executeRepayment, isoTime as iso, lineView, usdcString as usdc } from "./credit-exec";
 
-export type OwnedCardResolver = (c: Context<ApiEnv>, id: string) => CardRow;
+export type OwnedCardResolver = (c: Context<ApiEnv>, id: string, level?: "read" | "control" | "manage") => CardRow;
 export type Handle = (c: Context<ApiEnv>, fn: () => Promise<unknown>) => Promise<Response>;
 
 /** Who is acting: the ops token, or a Privy-bound user. */
@@ -244,7 +244,7 @@ export function creditRoutes(
       const a = actor(c, body.userId);
       const line = visibleLine(a, c.req.param("id"));
       if (!body.card_id) throw new RefusalError("invalid_terms", "card_id (the borrower's card) is required");
-      const card = ownedCard(c, body.card_id);
+      const card = ownedCard(c, body.card_id, "control");
       const borrower = ac.borrowerAddressForCard(deps.store, card.id);
       if (!borrower || borrower.toLowerCase() !== line.borrower_address.toLowerCase()) {
         throw new RefusalError("not_your_subcard", "that card's funding account is not the borrower on this line");
@@ -266,7 +266,7 @@ export function creditRoutes(
       const a = actor(c, body.userId);
       const line = visibleLine(a, c.req.param("id"));
       if (!body.card_id) throw new RefusalError("invalid_terms", "card_id (the borrower's card) is required");
-      const card = ownedCard(c, body.card_id);
+      const card = ownedCard(c, body.card_id, "control");
       if (!body.amount || !/^\d+(\.\d{1,6})?$/.test(body.amount)) throw new RefusalError("invalid_terms", "amount must be a USDC decimal string");
       const r = await executeRepayment(deps, line.id, {
         cardId: card.id,
@@ -357,7 +357,7 @@ export function creditRoutes(
       if (!s) throw new RefusalError("invalid_terms", "disputes are not available on this deployment");
       const body = (await c.req.json().catch(() => ({}))) as { charge_id?: string; reason?: string; userId?: string };
       const a = actor(c, body.userId);
-      const card = ownedCard(c, c.req.param("id"));
+      const card = ownedCard(c, c.req.param("id"), "control");
       if (!body.charge_id || !body.reason) throw new RefusalError("invalid_terms", "charge_id and reason are required");
       try {
         const d = ac.openDispute(
@@ -378,7 +378,7 @@ export function creditRoutes(
   app.get("/cards/:id/disputes", (c) =>
     handle(c, async () => {
       const s = acStore();
-      const card = ownedCard(c, c.req.param("id"));
+      const card = ownedCard(c, c.req.param("id"), "read");
       if (!s) return { configured: false, items: [] };
       return { configured: features().disputes, items: s.listDisputesByCard(card.id).map((d) => disputeView(d, s)) };
     }),
@@ -445,7 +445,7 @@ export function creditRoutes(
 
   app.get("/cards/:id/passport", (c) =>
     handle(c, async () => {
-      const card = ownedCard(c, c.req.param("id"));
+      const card = ownedCard(c, c.req.param("id"), "read");
       const account = ac.borrowerAddressForCard(deps.store, card.id);
       if (!account) throw new RefusalError("invalid_terms", "card has no resolvable funding account");
       return passportFor(deps, account);
@@ -455,7 +455,7 @@ export function creditRoutes(
   // Pipeline rows for facts on a card (draws, repayments, disputes, revocation).
   app.get("/cards/:id/attestcoin-facts", (c) =>
     handle(c, async () => {
-      const card = ownedCard(c, c.req.param("id"));
+      const card = ownedCard(c, c.req.param("id"), "read");
       const s = acStore();
       if (!s) return { configured: false, items: [] };
       return { configured: client() !== null, items: s.listFactsByCard(card.id).map(factView) };
@@ -468,7 +468,7 @@ export function creditRoutes(
       if (!s) throw new RefusalError("invalid_terms", "not configured");
       const fact = s.getFact(c.req.param("id"));
       if (!fact) throw new RefusalError("card_not_found", "no such fact");
-      if (fact.card_id) ownedCard(c, fact.card_id);
+      if (fact.card_id) ownedCard(c, fact.card_id, "control");
       return { retried: s.retryFailedFact(fact.id, now()) };
     }),
   );

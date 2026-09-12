@@ -11,7 +11,7 @@ import { EVENT_TYPES, type AuditRow, type DeliveryRow, type EventType, type Webh
 import { checkWebhookUrl, deliverWebhooks } from "./deliver";
 import type { Actor } from "../attestcoin/credit-routes";
 
-export type OwnedCardResolver = (c: Context<ApiEnv>, id: string) => CardRow;
+export type OwnedCardResolver = (c: Context<ApiEnv>, id: string, level?: "read" | "control" | "manage") => CardRow;
 export type Handle = (c: Context<ApiEnv>, fn: () => Promise<unknown>) => Promise<Response>;
 export type ActorResolver = (c: Context<ApiEnv>, requestedUserId?: string) => Actor;
 
@@ -145,7 +145,7 @@ export function eventRoutes(deps: AppDeps, ownedCard: OwnedCardResolver, handle:
       const a = actor(c, c.req.query("userId"));
       const limit = Math.min(Number(c.req.query("limit") ?? 100) || 100, 500);
       const cardId = c.req.query("card_id") ?? undefined;
-      if (cardId) ownedCard(c, cardId);
+      if (cardId) ownedCard(c, cardId, "read");
       const items = deps.events.events.listEvents(a.kind === "admin" && c.req.query("all") === "1" ? null : actorId(a), limit, cardId);
       return { configured: true, items: items.map((e) => ({ ...e, created_at: iso(e.created_at) })) };
     }),
@@ -159,7 +159,7 @@ export function eventRoutes(deps: AppDeps, ownedCard: OwnedCardResolver, handle:
       if (!deps.events) return null;
       const a = actor(c, q.userId);
       const cardId = q.card_id;
-      if (cardId) ownedCard(c, cardId);
+      if (cardId) ownedCard(c, cardId, "read");
       const scope =
         a.kind === "admin" && q.all === "1"
           ? null
@@ -202,7 +202,7 @@ export function eventRoutes(deps: AppDeps, ownedCard: OwnedCardResolver, handle:
 
   app.get("/cards/:id/alerts", (c) =>
     handle(c, async () => {
-      const card = ownedCard(c, c.req.param("id"));
+      const card = ownedCard(c, c.req.param("id"), "read");
       return { card_id: card.id, threshold_pct: deps.events?.events.getAlertThreshold(card.id) ?? 20, configured: Boolean(deps.events) };
     }),
   );
@@ -210,7 +210,7 @@ export function eventRoutes(deps: AppDeps, ownedCard: OwnedCardResolver, handle:
   app.put("/cards/:id/alerts", (c) =>
     handle(c, async () => {
       const b = bus();
-      const card = ownedCard(c, c.req.param("id"));
+      const card = ownedCard(c, c.req.param("id"), "control");
       const body = (await c.req.json().catch(() => ({}))) as { threshold_pct?: number; userId?: string };
       const a = actor(c, body.userId);
       const pct = Number(body.threshold_pct);
