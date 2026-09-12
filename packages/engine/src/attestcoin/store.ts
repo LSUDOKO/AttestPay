@@ -177,6 +177,26 @@ export class AttestcoinStore {
       .run(params as never);
   }
 
+  /** Re-arms a terminally-failed row for another run.
+   *
+   * Resets the attempt budget as well as the status, because a row parked at
+   * MAX_ATTEMPTS would otherwise fail again on the worker's very first look. `error`
+   * is cleared only on the row itself; the operator-visible reason lives in the log
+   * trail, so nothing is lost. Returns false when the row is absent or not failed —
+   * re-arming a healthy in-flight row would restart its anchoring. */
+  retryFailed(chargeId: string, now: number): boolean {
+    const row = this.get(chargeId);
+    if (!row || row.status !== "failed") return false;
+    this.db
+      .query(
+        `UPDATE attestcoin_proofs
+            SET status = 'pending', attempts = 0, error = NULL, updated_at = $now
+          WHERE charge_id = $c`,
+      )
+      .run({ $c: chargeId, $now: now });
+    return true;
+  }
+
   /** Counts per status — the pipeline's queue depth, for health and dashboards. */
   statusCounts(): Record<ProofStatus, number> {
     const rows = this.db

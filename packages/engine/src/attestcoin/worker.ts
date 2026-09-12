@@ -230,10 +230,17 @@ async function advance(deps: WorkerDeps, row: ProofRow, now: number): Promise<Ou
         );
         endToEndSeconds.record(now - row.created_at);
 
-        // Refresh the cached credit record now that it has definitely changed, so the
-        // dashboard and `credit_score` reflect this payment without waiting for a read.
-        // `recorded === 0` means it was already verified — still worth re-reading.
-        void recorded;
+        // Refresh the cached credit record so the dashboard and `credit_score` reflect
+        // this payment without waiting for a read. Done even when `recorded === 0` (the
+        // event was already verified by someone else's proof submission): the local
+        // cache may still be behind the chain.
+        if (recorded === 0) {
+          emitAttestcoinError(
+            "submit",
+            row.charge_id,
+            "proof accepted but recorded 0 new payments: this event was already verified on-chain",
+          );
+        }
         await refreshCreditCache(deps, row.card_id, now);
 
         return "verified";

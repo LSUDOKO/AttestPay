@@ -376,6 +376,53 @@ describe("attestcoin store", () => {
     expect(ac.cardStats(cardId)).toEqual({ total: 4, verified: 2, failed: 1, inFlight: 1 });
   });
 
+  test("retryFailed re-arms a failed row, budget and all", () => {
+    const { store, ac, cardId } = harness();
+    const ch = insertCharge(store, cardId);
+    ac.enqueue(ch, cardId, 100);
+    ac.update(ch, { status: "failed", error: "rpc down" }, 200);
+    // Park it at the attempt ceiling, as a genuinely exhausted row would be.
+    for (let i = 0; i < MAX_ATTEMPTS; i++) ac.update(ch, { bumpAttempts: true }, 200);
+    expect(ac.get(ch)!.attempts).toBe(MAX_ATTEMPTS);
+
+    expect(ac.retryFailed(ch, 300)).toBe(true);
+    const row = ac.get(ch)!;
+    expect(row.status).toBe("pending");
+    // Resetting status alone would not help: the worker checks attempts FIRST and
+    // would re-park the row on its very next look.
+    expect(row.attempts).toBe(0);
+    expect(row.error).toBeNull();
+  });
+
+  test("retryFailed refuses a row that is not failed", () => {
+    const { store, ac, cardId } = harness();
+    const ch = insertCharge(store, cardId);
+    ac.enqueue(ch, cardId, 100);
+    ac.update(ch, { status: "anchored", anchor_tx_hash: "0xa", anchor_height: 5 }, 200);
+
+    // Re-arming a healthy in-flight row would restart its anchoring.
+    expect(ac.retryFailed(ch, 300)).toBe(false);
+    expect(ac.get(ch)!.status).toBe("anchored");
+    expect(ac.get(ch)!.anchor_tx_hash).toBe("0xa");
+
+    expect(ac.retryFailed("nope", 300)).toBe(false);
+  });
+
+  test("a re-armed row actually runs again instead of re-failing", async () => {
+    // The point of resetting attempts: the worker must pick the row up for real.
+    const h = harness({ attestedAt: 100 });
+    const ch = insertCharge(h.store, h.cardId);
+    h.ac.enqueue(ch, h.cardId, h.clock);
+    h.ac.update(ch, { status: "failed", error: "transient" }, h.clock);
+    for (let i = 0; i < MAX_ATTEMPTS; i++) h.ac.update(ch, { bumpAttempts: true }, h.clock);
+
+    h.ac.retryFailed(ch, h.clock);
+    h.tick();
+    const r = await sweepProofs(h.deps);
+    expect(r.advanced).toBe(1);
+    expect(h.ac.get(ch)!.status).toBe("anchored");
+  });
+
   test("averageVerifySeconds is null with no verified rows, not zero", () => {
     const { store, ac, cardId } = harness();
     const ch = insertCharge(store, cardId);

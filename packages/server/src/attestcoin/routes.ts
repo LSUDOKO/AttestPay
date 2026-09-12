@@ -199,14 +199,10 @@ export function attestcoinRoutes(
       }
 
       s.enqueue(body.charge_id, card.id, now());
-      if (existing?.status === "failed") {
-        // Reset the attempt budget too, or the row fails again on its first look.
-        s.update(body.charge_id, { status: "pending", error: null }, now());
-        s.db
-          .query(`UPDATE attestcoin_proofs SET attempts = 0 WHERE charge_id = $c`)
-          .run({ $c: body.charge_id });
-      }
-      return { queued: true, charge_id: body.charge_id };
+      // A previously failed row needs its attempt budget reset, not just its status,
+      // or the worker gives up again on its first look.
+      const rearmed = existing?.status === "failed" ? s.retryFailed(body.charge_id, now()) : false;
+      return { queued: true, charge_id: body.charge_id, retried_after_failure: rearmed };
     }),
   );
 
