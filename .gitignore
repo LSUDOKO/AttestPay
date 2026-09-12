@@ -38,3 +38,7 @@ packages/*/scripts/*.workflow.js
 .open-next/
 .wrangler/
 packages/dashboard/out/
+
+# local reference clones (third-party docs/examples, never committed)
+creditcoin-docs/
+attestcoin-protocol-examples/
