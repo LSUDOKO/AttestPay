@@ -1,0 +1,50 @@
+# Render blueprint for the AttestPay API server.
+#
+# Docker, not a native runtime: the server uses bun:sqlite and Bun.serve.
+services:
+  - type: web
+    name: attestpay-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: "10000"
+      # SQLite path. On the free plan this is ephemeral — see the disk note below.
+      - key: ATTESTPAY_DB_PATH
+        value: /data/attestpay.sqlite
+      # Secrets: set in the Render dashboard, never committed.
+      - key: ATTESTPAY_MASTER_KEY
+        sync: false
+      - key: ATTESTPAY_ADMIN_TOKEN
+        sync: false
+      - key: ATTESTPAY_ATTESTCOIN_PRIVATE_KEY
+        sync: false
+      - key: ATTESTPAY_PRIVY_APP_ID
+        sync: false
+      # Attestcoin: deployed 2026-09-12, see docs/attestcoin-integration.md
+      - key: ATTESTPAY_PAYMENT_ANCHOR_ADDRESS
+        value: "0x881c55745372DfCB7dEC9B13F499b167164e2121"
+      - key: ATTESTPAY_ASC_ADDRESS
+        value: "0x881c55745372DfCB7dEC9B13F499b167164e2121"
+      - key: ATTESTPAY_ATTESTCOIN_CHAIN_KEY
+        value: "1"
+      - key: ATTESTPAY_SEPOLIA_RPC
+        value: https://ethereum-sepolia-rpc.publicnode.com
+      - key: ATTESTPAY_CREDITCOIN_HTTP_RPC
+        value: https://rpc.cc3-testnet.creditcoin.network
+      - key: ATTESTPAY_PROVER_API_URL
+        value: https://prover.cc3-testnet.creditcoin.network
+
+# NOTE ON PERSISTENCE
+# The free plan has no persistent disk, so /data resets on every deploy and on the
+# instance sleeping. That loses cards, delegations and the proof queue. For anything
+# beyond a demo, attach a disk (paid plan):
+#
+#   disk:
+#     name: attestpay-data
+#     mountPath: /data
+#     sizeGB: 1

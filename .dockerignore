@@ -1,0 +1,15 @@
+node_modules
+**/node_modules
+.git
+.env
+.next
+.open-next
+.wrangler
+out
+contracts/out
+contracts/cache
+contracts/broadcast
+docs
+probes
+harness-privy
+*.md
