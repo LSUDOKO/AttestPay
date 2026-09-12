@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "attestpay-dashboard",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-09-12",
+  // nodejs_compat is required by the Next server runtime OpenNext bundles.
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
