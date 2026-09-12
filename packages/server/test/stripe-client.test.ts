@@ -45,8 +45,16 @@ describe("request shape", () => {
     const auth = await client.createTestAuthorization({ cardId: "ic_1", amountCents: 250, merchantName: "Bean & Gone" });
     expect(auth).toEqual({ id: "iauth_t1", approved: true, status: "closed", amount: 250, currency: "usd", decline_reason: null });
 
-    const req = calls[0]!;
-    expect(req.url).toBe("https://api.stripe.com/v1/test_helpers/issuing/authorizations");
+    // createTestAuthorization funds the test Issuing balance FIRST, so the
+    // authorization is not calls[0]. Assert that ordering explicitly rather than
+    // indexing blindly: the funding call is what stops test-mode auths being
+    // pre-declined for insufficient_funds, so its presence and position matter.
+    expect(calls.map((c) => c.url)).toEqual([
+      "https://api.stripe.com/v1/test_helpers/issuing/fund_balance",
+      "https://api.stripe.com/v1/test_helpers/issuing/authorizations",
+    ]);
+
+    const req = calls[1]!;
     expect(req.init?.method).toBe("POST");
     const headers = req.init?.headers as Record<string, string>;
     expect(headers.Authorization).toBe(`Bearer ${TEST_KEY}`);

@@ -99,7 +99,12 @@ export class StripeClient {
    * credential read must not mint two Visas for one delegation */
   private ensuring = new Map<string, Promise<string | null>>();
 
-  constructor(key: string, fetchFn: FetchFn = (url, init) => globalThis.fetch(url, init)) {
+  // The default uses the bare global `fetch`, not `globalThis.fetch`: indexing
+  // `globalThis` depends on whichever ambient type packages happen to be in scope, and
+  // breaks under `types: ["bun"]` once a dependency (ethers, via the Attestcoin
+  // integration) contributes its own global declarations. The bare binding is typed
+  // directly by the runtime's own lib and is stable regardless.
+  constructor(key: string, fetchFn: FetchFn = (url, init) => fetch(url, init)) {
     this.key = key;
     this.fetchFn = fetchFn;
   }
