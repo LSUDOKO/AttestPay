@@ -2,11 +2,12 @@
 //
 // Answers the question an operator or an agent actually has mid-demo — "is the
 // cross-chain leg moving, and if my payment isn't verified yet, is that normal?" —
-// which needs the attestation lag and the local queue side by side.
+// which needs the attestation lag and the local queue side by side. It also answers
+// the strategic one: "is Base attested yet?", straight from the live registry.
 
 import { AttestcoinClient } from "./client";
 import type { AttestcoinStore } from "./store";
-import { attestcoinDisabledReason } from "./config";
+import { attestcoinDisabledReason, attestcoinFeatures } from "./config";
 import { CREDITCOIN_TESTNET, type AttestcoinHealth, type ProofStatus } from "./types";
 
 const EMPTY_QUEUE: Record<ProofStatus, number> = {
@@ -27,16 +28,31 @@ export async function attestcoinHealth(
   client: AttestcoinClient,
   store: AttestcoinStore,
 ): Promise<AttestcoinHealth> {
+  const cfg = client.config;
+  const disc = client.discovery;
   const base: AttestcoinHealth = {
     configured: true,
-    chainKey: client.config.chainKey,
+    chainKey: cfg.chainKey,
+    chainKeySource: disc ? disc.source : cfg.chainKeyMode === "auto" ? null : "env",
+    supportedChains: disc?.chains ?? null,
+    paymentChainId: cfg.paymentChainId,
+    paymentChainAttested: disc ? disc.paymentChainAttested : null,
     latestAttestedHeight: null,
     sourceHead: null,
     attestationLagBlocks: null,
     queue: store.statusCounts(),
-    creditcoinChainId: client.config.creditcoinChainId,
-    ascAddress: client.config.ascAddress,
-    anchorAddress: client.config.anchorAddress,
+    factQueue: store.factStatusCounts(),
+    creditcoinChainId: cfg.creditcoinChainId,
+    ascAddress: cfg.ascAddress,
+    anchorAddress: cfg.anchorAddress,
+    features: attestcoinFeatures(cfg),
+    contracts: {
+      factAnchor: cfg.factAnchorAddress,
+      creditLine: cfg.creditLineAddress,
+      ledger: cfg.ledgerAddress,
+      guarantee: cfg.guaranteeAddress,
+      passport: cfg.passportAddress,
+    },
   };
 
   try {
@@ -58,13 +74,20 @@ export function attestcoinDisabledHealth(store?: AttestcoinStore): AttestcoinHea
   return {
     configured: false,
     chainKey: null,
+    chainKeySource: null,
+    supportedChains: null,
+    paymentChainId: null,
+    paymentChainAttested: null,
     latestAttestedHeight: null,
     sourceHead: null,
     attestationLagBlocks: null,
     queue: store ? store.statusCounts() : { ...EMPTY_QUEUE },
+    factQueue: store ? store.factStatusCounts() : { ...EMPTY_QUEUE },
     creditcoinChainId: null,
     ascAddress: null,
     anchorAddress: null,
+    features: { credit: false, disputes: false, guarantee: false, passport: false },
+    contracts: { factAnchor: null, creditLine: null, ledger: null, guarantee: null, passport: null },
     error: attestcoinDisabledReason() ?? "not configured",
   };
 }
@@ -99,6 +122,10 @@ export function baseTxUrl(chainId: number, txHash: string): string {
  *   - verified volume (scale)
  *   - history length  (age: a long record is harder to fake than a large one)
  * Terms compliance, when measurable, scales the result.
+ *
+ * `CreditPassport.scoreOf` computes the same base on-chain and then applies the credit
+ * adjustments (repaid lines up, defaults and upheld disputes down); when the passport
+ * contract is configured, prefer its number — this one is the payments-only summary.
  *
  * This is a readable summary of public on-chain facts, not a risk model. Anyone
  * wanting a real one should read the underlying payments from the ASC directly. */

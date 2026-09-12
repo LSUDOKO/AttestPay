@@ -1,4 +1,4 @@
-// The Attestcoin proof worker: drives persisted proof rows toward 'verified'.
+// The Attestcoin proof worker: drives persisted pipeline rows toward 'verified'.
 //
 // WHY A WORKER AND NOT AN INLINE STEP IN `pay`
 //
@@ -14,14 +14,21 @@
 // through to completion. That keeps a single slow row from starving the queue, and
 // makes the attestation wait a natural consequence of re-checking rather than a sleep
 // held inside a process.
+//
+// ONE STATE MACHINE, TWO PIPELINES
+//
+// Payments (PaymentAnchor -> AttestPayASC) and facts (FactAnchor -> AttestPayCreditLine
+// / AttestPayLedger) have identical lifecycles and differ only in how a row is
+// anchored and where its proof is submitted. `Pipeline` captures that difference and
+// `advance` is written once against it.
 
 import type { Store } from "../store";
 import { atomsToUsdc } from "../money";
 import { AttestcoinClient, AttestcoinError } from "./client";
-import type { AttestcoinStore } from "./store";
+import type { AttestcoinStore, PipelineUpdate } from "./store";
 import { cardIdToBytes32, type AttestcoinConfig } from "./config";
 import { endToEndSeconds, emitAttestcoinError, verificationFailures } from "./telemetry";
-import type { AnchorRequest, ProofRow } from "./types";
+import type { AnchorRequest, FactRow, ProofRow, ProofStatus } from "./types";
 import type { Address, Hex } from "viem";
 
 /** Attempts before a row is parked as 'failed'.
@@ -39,7 +46,14 @@ export type WorkerDeps = {
   now?: () => number;
   /** Rows advanced per tick. Keeps one sweep's RPC usage bounded. */
   batchSize?: number;
+  /** Fired once when a row reaches 'verified' or 'failed'. Webhooks hang off this.
+   * Must not throw; it is shielded regardless. */
+  onTerminal?: (event: PipelineEvent) => void;
 };
+
+export type PipelineEvent =
+  | { pipeline: "payment"; status: "verified" | "failed"; row: ProofRow }
+  | { pipeline: "fact"; status: "verified" | "failed"; row: FactRow };
 
 export type SweepResult = {
   examined: number;
@@ -47,6 +61,32 @@ export type SweepResult = {
   verified: number;
   failed: number;
   waiting: number;
+};
+
+/** The lifecycle columns every pipeline row shares. */
+type PipelineRow = {
+  status: ProofStatus;
+  anchor_tx_hash: string | null;
+  anchor_height: number | null;
+  attempts: number;
+  created_at: number;
+};
+
+/** What differs between the payment and fact pipelines. */
+type Pipeline<R extends PipelineRow> = {
+  name: "payment" | "fact";
+  idOf(row: R): string;
+  claimable(limit: number): R[];
+  update(id: string, fields: PipelineUpdate, now: number): void;
+  /** Whether the row can be anchored at all. Checked BEFORE an attempt is spent, so
+   * a structurally impossible row is parked on its first look, budget intact. */
+  anchorable(row: R): boolean;
+  /** Writes the anchor. */
+  anchor(row: R): Promise<{ txHash: string; height: number }>;
+  submit(row: R, proof: Awaited<ReturnType<AttestcoinClient["generateProof"]>>): Promise<{ txHash: string; recorded: number }>;
+  /** Runs after a row is verified (cache refreshes, local mirrors). Best-effort. */
+  afterVerified?(row: R, now: number): Promise<void>;
+  terminal(row: R, status: "verified" | "failed"): PipelineEvent;
 };
 
 /** Resolves the funding account a card's USDC actually leaves from: the root
@@ -87,12 +127,71 @@ export function anchorRequestFor(
   };
 }
 
-/** Advances every claimable proof row by one state. Never throws: a sweep that dies
- * on one bad row would stall every other row behind it. */
-export async function sweepProofs(deps: WorkerDeps): Promise<SweepResult> {
+// ---------------------------------------------------------------------------
+// The two pipelines
+// ---------------------------------------------------------------------------
+
+/** The chain AttestPay's USDC settles on. Falls back to Base for clients built from
+ * older configurations (and test fakes) that predate the field. */
+function paymentChainId(client: AttestcoinClient): number {
+  return client.config.paymentChainId ?? 8453;
+}
+
+function paymentPipeline(deps: WorkerDeps): Pipeline<ProofRow> {
+  const { attestcoin, client, store } = deps;
+  return {
+    name: "payment",
+    idOf: (r) => r.charge_id,
+    claimable: (n) => attestcoin.claimable(n),
+    update: (id, f, now) => attestcoin.update(id, f, now),
+    anchorable: (row) => anchorRequestFor(store, row.charge_id, paymentChainId(client)) !== null,
+    async anchor(row) {
+      // The anchor records the chain the USDC actually moved on (Base), which is what
+      // `PaymentAnchored.sourceChainId` documents; the anchor's own chain is implicit.
+      const req = anchorRequestFor(store, row.charge_id, paymentChainId(client))!;
+      return client.anchorPayment(req);
+    },
+    submit: (row, proof) => client.submitProof(row.charge_id, row.card_id, proof),
+    afterVerified: (row, now) => refreshCreditCache(deps, row.card_id, now),
+    terminal: (row, status) => ({ pipeline: "payment", status, row }),
+  };
+}
+
+function factPipeline(deps: WorkerDeps): Pipeline<FactRow> {
+  const { attestcoin, client } = deps;
+  return {
+    name: "fact",
+    idOf: (r) => r.id,
+    claimable: (n) => attestcoin.claimableFacts(n),
+    update: (id, f, now) => attestcoin.updateFact(id, f, now),
+    anchorable: () => true,
+    anchor: (row) => client.anchorFact(row),
+    submit: (row, proof) => client.submitFacts(row.target, row.id, proof),
+    async afterVerified(row, now) {
+      // A verified draw/repayment means the on-chain line moved: mirror it locally.
+      if (row.kind === "draw" || row.kind === "repayment") {
+        await syncLineFromChain(deps, row.ref_id, now);
+      }
+    },
+    terminal: (row, status) => ({ pipeline: "fact", status, row }),
+  };
+}
+
+/** Advances every claimable payment proof row by one state. Never throws: a sweep
+ * that dies on one bad row would stall every other row behind it. */
+export function sweepProofs(deps: WorkerDeps): Promise<SweepResult> {
+  return sweep(deps, paymentPipeline(deps));
+}
+
+/** Advances every claimable fact row by one state. */
+export function sweepFacts(deps: WorkerDeps): Promise<SweepResult> {
+  return sweep(deps, factPipeline(deps));
+}
+
+async function sweep<R extends PipelineRow>(deps: WorkerDeps, p: Pipeline<R>): Promise<SweepResult> {
   const now = deps.now ?? (() => Math.floor(Date.now() / 1000));
   const batch = deps.batchSize ?? 10;
-  const rows = deps.attestcoin.claimable(batch);
+  const rows = p.claimable(batch);
 
   const result: SweepResult = {
     examined: rows.length,
@@ -104,7 +203,7 @@ export async function sweepProofs(deps: WorkerDeps): Promise<SweepResult> {
 
   for (const row of rows) {
     try {
-      const outcome = await advance(deps, row, now());
+      const outcome = await advance(deps, p, row, now());
       if (outcome === "advanced") result.advanced += 1;
       else if (outcome === "verified") {
         result.advanced += 1;
@@ -115,8 +214,8 @@ export async function sweepProofs(deps: WorkerDeps): Promise<SweepResult> {
       // advance() is meant to classify its own errors; anything escaping is a bug,
       // so record it against the row and keep the sweep alive.
       const message = e instanceof Error ? e.message : String(e);
-      emitAttestcoinError("sweep", row.charge_id, message);
-      deps.attestcoin.update(row.charge_id, { error: message, bumpAttempts: true }, now());
+      emitAttestcoinError("sweep", p.idOf(row), message);
+      p.update(p.idOf(row), { error: message, bumpAttempts: true }, now());
       result.failed += 1;
     }
   }
@@ -126,21 +225,24 @@ export async function sweepProofs(deps: WorkerDeps): Promise<SweepResult> {
 
 type Outcome = "advanced" | "verified" | "waiting" | "failed" | "noop";
 
+function notifyTerminal<R extends PipelineRow>(deps: WorkerDeps, p: Pipeline<R>, row: R, status: "verified" | "failed"): void {
+  if (!deps.onTerminal) return;
+  try {
+    deps.onTerminal(p.terminal(row, status));
+  } catch {
+    /* a broken listener must not fail a pipeline that already persisted its result */
+  }
+}
+
 /** Performs one state transition for one row. */
-async function advance(deps: WorkerDeps, row: ProofRow, now: number): Promise<Outcome> {
-  const { attestcoin, client, store } = deps;
+async function advance<R extends PipelineRow>(deps: WorkerDeps, p: Pipeline<R>, row: R, now: number): Promise<Outcome> {
+  const id = p.idOf(row);
 
   if (row.attempts >= MAX_ATTEMPTS) {
-    attestcoin.update(
-      row.charge_id,
-      {
-        status: "failed",
-        error: row.error ?? `gave up after ${MAX_ATTEMPTS} attempts`,
-      },
-      now,
-    );
-    verificationFailures.add(1, { stage: "exhausted" });
-    emitAttestcoinError("exhausted", row.charge_id, `gave up after ${MAX_ATTEMPTS} attempts`);
+    p.update(id, { status: "failed", error: (row as { error?: string | null }).error ?? `gave up after ${MAX_ATTEMPTS} attempts` }, now);
+    verificationFailures.add(1, { stage: "exhausted", pipeline: p.name });
+    emitAttestcoinError("exhausted", id, `gave up after ${MAX_ATTEMPTS} attempts`);
+    notifyTerminal(deps, p, { ...row, status: "failed" }, "failed");
     return "failed";
   }
 
@@ -148,55 +250,52 @@ async function advance(deps: WorkerDeps, row: ProofRow, now: number): Promise<Ou
     // ---- write the anchor on the source chain ----
     case "pending":
     case "anchoring": {
-      const req = anchorRequestFor(store, row.charge_id, client.config.sourceChainId);
-      if (!req) {
+      if (!p.anchorable(row)) {
         // Not anchorable and never will be (no tx hash / no recipient / no account):
         // park it rather than retry 30 times.
-        attestcoin.update(
-          row.charge_id,
-          { status: "failed", error: "charge is not anchorable (missing tx hash, recipient, or funding account)" },
+        p.update(
+          id,
+          { status: "failed", error: "not anchorable (missing tx hash, recipient, or funding account)" },
           now,
         );
+        notifyTerminal(deps, p, { ...row, status: "failed" }, "failed");
         return "failed";
       }
 
-      attestcoin.update(row.charge_id, { status: "anchoring", bumpAttempts: true }, now);
+      p.update(id, { status: "anchoring", bumpAttempts: true }, now);
       try {
-        const { txHash, height } = await client.anchorPayment(req);
-        attestcoin.update(
-          row.charge_id,
-          { status: "anchored", anchor_tx_hash: txHash, anchor_height: height, error: null },
+        const landed = await p.anchor(row);
+        p.update(
+          id,
+          { status: "anchored", anchor_tx_hash: landed.txHash, anchor_height: landed.height, error: null },
           now,
         );
         return "advanced";
       } catch (e) {
-        return classify(deps, row, e, "anchor", now);
+        return classify(deps, p, row, e, "anchor", now);
       }
     }
 
     // ---- wait for the attestors to cover the anchor's block ----
     case "anchored": {
       if (row.anchor_height === null) {
-        attestcoin.update(
-          row.charge_id,
-          { status: "failed", error: "anchored row has no anchor height" },
-          now,
-        );
+        p.update(id, { status: "failed", error: "anchored row has no anchor height" }, now);
+        notifyTerminal(deps, p, { ...row, status: "failed" }, "failed");
         return "failed";
       }
       try {
-        const attested = await client.isAttested(row.anchor_height);
+        const attested = await deps.client.isAttested(row.anchor_height);
         if (!attested) {
           // Deliberately does NOT bump attempts: waiting is the expected state, and
           // counting it as a failed attempt would expire healthy rows.
-          attestcoin.update(row.charge_id, {}, now);
+          p.update(id, {}, now);
           return "waiting";
         }
-        client.recordAttestationWait(row.charge_id, row.anchor_height, now - row.created_at);
-        attestcoin.update(row.charge_id, { status: "attested", error: null }, now);
+        deps.client.recordAttestationWait(id, row.anchor_height, now - row.created_at);
+        p.update(id, { status: "attested", error: null }, now);
         return "advanced";
       } catch (e) {
-        return classify(deps, row, e, "attestation", now);
+        return classify(deps, p, row, e, "attestation", now);
       }
     }
 
@@ -204,21 +303,18 @@ async function advance(deps: WorkerDeps, row: ProofRow, now: number): Promise<Ou
     case "attested":
     case "proving": {
       if (!row.anchor_tx_hash) {
-        attestcoin.update(
-          row.charge_id,
-          { status: "failed", error: "attested row has no anchor transaction hash" },
-          now,
-        );
+        p.update(id, { status: "failed", error: "attested row has no anchor transaction hash" }, now);
+        notifyTerminal(deps, p, { ...row, status: "failed" }, "failed");
         return "failed";
       }
 
-      attestcoin.update(row.charge_id, { status: "proving", bumpAttempts: true }, now);
+      p.update(id, { status: "proving", bumpAttempts: true }, now);
       try {
-        const proof = await client.generateProof(row.charge_id, row.anchor_tx_hash);
-        const { txHash, recorded } = await client.submitProof(row.charge_id, row.card_id, proof);
+        const proof = await deps.client.generateProof(id, row.anchor_tx_hash);
+        const { txHash, recorded } = await p.submit(row, proof);
 
-        attestcoin.update(
-          row.charge_id,
+        p.update(
+          id,
           {
             status: "verified",
             creditcoin_tx_hash: txHash,
@@ -228,24 +324,29 @@ async function advance(deps: WorkerDeps, row: ProofRow, now: number): Promise<Ou
           },
           now,
         );
-        endToEndSeconds.record(now - row.created_at);
+        endToEndSeconds.record(now - row.created_at, { pipeline: p.name });
 
-        // Refresh the cached credit record so the dashboard and `credit_score` reflect
-        // this payment without waiting for a read. Done even when `recorded === 0` (the
-        // event was already verified by someone else's proof submission): the local
-        // cache may still be behind the chain.
+        // Refresh local mirrors so the dashboard reflects this without waiting for a
+        // read. Done even when `recorded === 0` (the event was already verified by
+        // someone else's proof submission): the local view may still be behind.
         if (recorded === 0) {
           emitAttestcoinError(
             "submit",
-            row.charge_id,
-            "proof accepted but recorded 0 new payments: this event was already verified on-chain",
+            id,
+            "proof accepted but recorded 0 new events: this transaction was already verified on-chain",
           );
         }
-        await refreshCreditCache(deps, row.card_id, now);
-
+        if (p.afterVerified) {
+          try {
+            await p.afterVerified(row, now);
+          } catch {
+            /* mirrors are best-effort */
+          }
+        }
+        notifyTerminal(deps, p, { ...row, status: "verified" }, "verified");
         return "verified";
       } catch (e) {
-        return classify(deps, row, e, "proof", now);
+        return classify(deps, p, row, e, "proof", now);
       }
     }
 
@@ -255,26 +356,29 @@ async function advance(deps: WorkerDeps, row: ProofRow, now: number): Promise<Ou
 }
 
 /** Records a stage failure and decides whether the row may be retried. */
-function classify(
+function classify<R extends PipelineRow>(
   deps: WorkerDeps,
-  row: ProofRow,
+  p: Pipeline<R>,
+  row: R,
   e: unknown,
   stage: string,
   now: number,
 ): Outcome {
+  const id = p.idOf(row);
   const message = e instanceof Error ? e.message : String(e);
-  emitAttestcoinError(stage, row.charge_id, message);
+  emitAttestcoinError(stage, id, message);
 
   const permanent = e instanceof AttestcoinError && !e.retryable;
   if (permanent) {
-    deps.attestcoin.update(row.charge_id, { status: "failed", error: message }, now);
-    verificationFailures.add(1, { stage });
+    p.update(id, { status: "failed", error: message }, now);
+    verificationFailures.add(1, { stage, pipeline: p.name });
+    notifyTerminal(deps, p, { ...row, status: "failed" }, "failed");
     return "failed";
   }
 
   // Retryable: keep the row where it is and let the next tick try again. The attempt
   // counter was already bumped on entry to the stage, so this cannot loop forever.
-  deps.attestcoin.update(row.charge_id, { error: message }, now);
+  p.update(id, { error: message }, now);
   return "waiting";
 }
 
@@ -294,6 +398,28 @@ export async function refreshCreditCache(
   } catch {
     /* cache refresh is best-effort */
   }
+}
+
+/** Mirrors a line's on-chain state (status, drawn, repaid) into the local row. */
+export async function syncLineFromChain(
+  deps: { attestcoin: AttestcoinStore; client: AttestcoinClient },
+  lineId: string,
+  now: number,
+): Promise<void> {
+  const local = deps.attestcoin.getLine(lineId);
+  if (!local) return;
+  const onChain = await deps.client.getLine(lineId);
+  if (!onChain) return;
+  const status = (["proposed", "open", "active", "repaid", "defaulted", "closed"] as const)[onChain.status];
+  deps.attestcoin.updateLine(
+    lineId,
+    {
+      status: status && status !== "proposed" ? status : undefined,
+      drawn_atoms: onChain.drawn,
+      repaid_atoms: onChain.repaid,
+    },
+    now,
+  );
 }
 
 /** Registers a card's terms on Creditcoin, recording the outcome locally.
@@ -361,3 +487,4 @@ function usdcStringToAtoms(s: string): bigint {
 
 /** Re-exported for receipts/tools that render atoms for agents. */
 export { atomsToUsdc };
+export type { AttestcoinConfig };
