@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "dev": "bun run --cwd packages/server dev",
+    "test": "bun test --timeout 30000",
     "typecheck": "bun run --cwd packages/engine typecheck && bun run --cwd packages/server typecheck"
   },
   "devDependencies": {

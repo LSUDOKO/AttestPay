@@ -599,7 +599,7 @@ Plug the `card_url` into an agent and it can spend.
 ## Tests
 
 ```bash
-bun test                 # engine + server suites (408 tests)
+bun run test             # engine + server suites (411 pass, 4 skipped)
 bun run typecheck        # per-package tsc
 cd contracts && forge test   # Solidity suite (42 tests)
 ```
@@ -610,8 +610,8 @@ Attestcoin-specific suites:
 cd contracts && forge test                        # proofs, impostor anchors, replay, terms,
                                                   # and the decoder against REAL prover output
 bun run packages/engine/scripts/attestcoin-probe.ts  # live, read-only protocol probe
-bun test packages/engine/test/attestcoin.test.ts  # proof state machine, grading, config
-bun test packages/server/test/attestcoin.test.ts  # routes + tools, configured AND not
+bun run test packages/engine/test/attestcoin.test.ts  # proof state machine, grading, config
+bun run test packages/server/test/attestcoin.test.ts  # routes + tools, configured AND not
 ```
 
 The server suite runs the whole Attestcoin surface in **both** configurations. The

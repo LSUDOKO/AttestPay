@@ -130,7 +130,7 @@ beforeAll(async () => {
 
   store.upsertUser({ id: "u1", address: user.address });
   const issued = await issueRootCard(
-    { store, userSigner: user },
+    { store, userSigner: user, revocationNonceOverride: 0n },
     { userId: "u1", name: "attestcoin card", terms: { pay: { period: { amount: "10.00", seconds: 604800 } }, perTxMax: "5.00" } },
   );
   cardId = issued.cardId;
@@ -325,7 +325,7 @@ describe("Attestcoin enabled", () => {
 
   test("manual verify refuses a charge belonging to another card", async () => {
     const other = await issueRootCard(
-      { store, userSigner: user },
+      { store, userSigner: user, revocationNonceOverride: 0n },
       { userId: "u1", name: "other", terms: { pay: { period: { amount: "1.00", seconds: 3600 } } } },
     );
     const r = await epost(`/api/cards/${other.cardId}/attestcoin-verify`, { charge_id: chargeId });
@@ -383,7 +383,7 @@ describe("Attestcoin enabled", () => {
 
   test("proof detail hides another card's proof", async () => {
     const other = await issueRootCard(
-      { store, userSigner: user },
+      { store, userSigner: user, revocationNonceOverride: 0n },
       { userId: "u1", name: "other2", terms: { pay: { period: { amount: "1.00", seconds: 3600 } } } },
     );
     const r = await eget(`/api/cards/${other.cardId}/attestcoin-proofs/${chargeId}`);
@@ -498,7 +498,7 @@ describe("confirmed-charge enqueue hook", () => {
     const s = new Store(":memory:");
     s.upsertUser({ id: "u", address: user.address });
     const issued = await issueRootCard(
-      { store: s, userSigner: user },
+      { store: s, userSigner: user, revocationNonceOverride: 0n },
       { userId: "u", name: "hook card", terms: { pay: { period: { amount: "1.00", seconds: 3600 } } } },
     );
     const acStore = new attestcoin.AttestcoinStore(s.db);

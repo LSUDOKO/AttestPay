@@ -226,16 +226,27 @@ $ bun run packages/engine/scripts/attestcoin-probe.ts
 ✓ proof generated: 2688 txBytes · 7 Merkle siblings · 1 continuity root
 ```
 
+And the pipeline run end-to-end on the deployed contracts:
+
+```
+anchor  → Sepolia 0xb0cc21b3… @ 11,688,737
+wait    → 464 s (7.7 min) until the attestors covered it
+proof   → txIndex 71 · 2,240 B · 7 siblings · 4 continuity roots
+verify  → Creditcoin 0x0aa8570e… · recorded 1 payment
+replay  → same proof resubmitted → recorded 0 · credit unchanged
+```
+
 | | |
 |---|---|
-| Solidity | **42 tests** — including the decoder run against **real prover output**, not our own fixtures |
-| TypeScript | **408 tests** — the Attestcoin surface tested with the integration both **on and off** |
-| Docs | Every protocol claim paired with the command that checks it |
+| Solidity | **42 tests** — the decoder run against **real prover output**, not our own fixtures |
+| TypeScript | **411 tests** — the Attestcoin surface tested with the integration **on and off** |
 
 <!--
 Notes: The real-fixtures point is worth 15 seconds: we decode an encoding defined by
 someone else's SDK, so testing against our own encoder would prove only
-self-consistency.
+self-consistency. The replay line is the other one to land — the same valid proof
+submitted twice records nothing the second time, checked on the live contract, not in a
+unit test.
 -->
 
 ---

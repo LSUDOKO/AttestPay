@@ -4,6 +4,10 @@
 // tree through the REAL Hono app + real store. No relayer, no chain writes; the onboard
 // nonce read points at an unreachable RPC and falls back to 0.
 //
+// That fallback is not instant: viem retries a refused connection a few times before
+// giving up, so these tests need more than bun's default 5s per-test budget. Run them
+// via `bun run test` (which sets --timeout 30000), not a bare `bun test`.
+//
 // AUTH under test: the admin/ops lane (full access) AND the per-user Privy session
 // lane — a FAKE verifier stands in for JWKS verification ("pt-<name>" -> did:privy:<name>),
 // so the scoping rules run offline against the real middleware.
@@ -33,7 +37,8 @@ let store: Store;
 
 beforeAll(() => {
   process.env.ATTESTPAY_MASTER_KEY = "e".repeat(64);
-  // unreachable RPC: onboard's on-chain nonce read fails fast and falls back to 0
+  // unreachable RPC: onboard's on-chain nonce read fails (after viem's retries) and
+  // falls back to 0
   process.env.ATTESTPAY_RPC_URL = "http://127.0.0.1:1";
   store = new Store(":memory:");
   // minimal scripted relayer: enough for the client-signed admin ops (revoke/nuke)
