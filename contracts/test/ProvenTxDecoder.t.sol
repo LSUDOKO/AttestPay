@@ -23,8 +23,7 @@ contract ProvenTxDecoderTest is Test {
 
     /// A real EIP-1559 (type 2) transaction: 3 chunks, receipt last.
     function test_decodesRealType2TransactionLogs() public pure {
-        ProvenTxDecoder.Log[] memory logs =
-            ProvenTxDecoder.receiptLogs(RealProofFixtures.type2Tx());
+        ProvenTxDecoder.Log[] memory logs = ProvenTxDecoder.receiptLogs(RealProofFixtures.type2Tx());
 
         // The count must match what the Sepolia receipt actually had.
         assertEq(logs.length, RealProofFixtures.type2TxLogs(), "log count from real receipt");
@@ -41,8 +40,7 @@ contract ProvenTxDecoderTest is Test {
     /// A real legacy (type 0) transaction. The chunk layout differs by type, so the
     /// decoder's "receipt is always the last chunk" rule is verified on both.
     function test_decodesRealType0TransactionLogs() public pure {
-        ProvenTxDecoder.Log[] memory logs =
-            ProvenTxDecoder.receiptLogs(RealProofFixtures.type0Tx());
+        ProvenTxDecoder.Log[] memory logs = ProvenTxDecoder.receiptLogs(RealProofFixtures.type0Tx());
 
         assertEq(logs.length, RealProofFixtures.type0TxLogs(), "log count from real receipt");
         for (uint256 i = 0; i < logs.length; i++) {
@@ -81,12 +79,10 @@ contract ProvenTxDecoderTest is Test {
     /// Finding a specific log by emitter + topic0 is how the ASC locates its anchor, so
     /// the search must work over real log sets too, and must reject what is not there.
     function test_findLogOverRealLogs() public pure {
-        ProvenTxDecoder.Log[] memory logs =
-            ProvenTxDecoder.receiptLogs(RealProofFixtures.type2Tx());
+        ProvenTxDecoder.Log[] memory logs = ProvenTxDecoder.receiptLogs(RealProofFixtures.type2Tx());
 
         // A log that IS present must be found at its true index.
-        (bool found, uint256 index) =
-            ProvenTxDecoder.findLog(logs, logs[1].emitter, logs[1].topics[0]);
+        (bool found, uint256 index) = ProvenTxDecoder.findLog(logs, logs[1].emitter, logs[1].topics[0]);
         assertTrue(found);
         // Either index 1, or an earlier identical (emitter, topic0) pair — findLog
         // returns the FIRST match by contract, so assert that property rather than a
@@ -101,8 +97,7 @@ contract ProvenTxDecoderTest is Test {
         assertFalse(spoofed, "a matching topic from the wrong contract is not a match");
 
         // Right emitter, wrong topic: must NOT match.
-        (bool wrongTopic,) =
-            ProvenTxDecoder.findLog(logs, logs[1].emitter, keccak256("NotAnEventWeWant()"));
+        (bool wrongTopic,) = ProvenTxDecoder.findLog(logs, logs[1].emitter, keccak256("NotAnEventWeWant()"));
         assertFalse(wrongTopic);
     }
 
@@ -118,20 +113,14 @@ contract ProvenTxDecoderTest is Test {
         MockBlockProver prover = new MockBlockProver();
         AttestPayASC asc = new AttestPayASC(1, address(0xA0C0), address(0x5E2E), address(prover));
 
-        vm.expectRevert(
-            abi.encodeWithSelector(AttestPayASC.AnchorLogNotFound.selector, address(0xA0C0))
-        );
+        vm.expectRevert(abi.encodeWithSelector(AttestPayASC.AnchorLogNotFound.selector, address(0xA0C0)));
         asc.verifyPayment(
             11_688_140,
             RealProofFixtures.type2Tx(),
             IBlockProver.TransactionMerkleProof({
-                root: keccak256("root"),
-                siblings: new IBlockProver.MerkleProofEntry[](0)
+                root: keccak256("root"), siblings: new IBlockProver.MerkleProofEntry[](0)
             }),
-            IBlockProver.ContinuityProof({
-                lowerEndpointDigest: keccak256("lower"),
-                roots: new bytes32[](0)
-            })
+            IBlockProver.ContinuityProof({lowerEndpointDigest: keccak256("lower"), roots: new bytes32[](0)})
         );
 
         assertEq(asc.getCardPaymentCount(keccak256("any")), 0);
@@ -148,8 +137,7 @@ contract ProvenTxDecoderTest is Test {
 
         (uint8 synthType, bytes[] memory synthChunks) =
             abi.decode(AttestcoinEncoding.encodeType2(1, one), (uint8, bytes[]));
-        (uint8 realType, bytes[] memory realChunks) =
-            abi.decode(RealProofFixtures.type2Tx(), (uint8, bytes[]));
+        (uint8 realType, bytes[] memory realChunks) = abi.decode(RealProofFixtures.type2Tx(), (uint8, bytes[]));
 
         assertEq(synthType, realType, "same transaction type tag");
         assertEq(synthChunks.length, realChunks.length, "same chunk count");

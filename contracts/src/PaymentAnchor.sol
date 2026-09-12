@@ -96,9 +96,7 @@ contract PaymentAnchor {
         anchored[key] = true;
         anchorCount[cardId] += 1;
 
-        emit PaymentAnchored(
-            cardId, payer, merchant, amount, sourceChainId, sourceTxHash, paidAt, msg.sender, memo
-        );
+        emit PaymentAnchored(cardId, payer, merchant, amount, sourceChainId, sourceTxHash, paidAt, msg.sender, memo);
     }
 
     /// @notice The replay key for a source payment.

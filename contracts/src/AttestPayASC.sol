@@ -173,18 +173,12 @@ contract AttestPayASC {
     /// @param _trustedAnchorer The anchorer whose claims this ASC credits.
     /// @param _blockProver Block Prover precompile, or a mock in tests. Pass
     /// `address(0)` to bind the canonical precompile address.
-    constructor(
-        uint64 _sourceChainKey,
-        address _paymentAnchor,
-        address _trustedAnchorer,
-        address _blockProver
-    ) {
+    constructor(uint64 _sourceChainKey, address _paymentAnchor, address _trustedAnchorer, address _blockProver) {
         if (_paymentAnchor == address(0) || _trustedAnchorer == address(0)) revert ZeroAddress();
         sourceChainKey = _sourceChainKey;
         paymentAnchor = _paymentAnchor;
         trustedAnchorer = _trustedAnchorer;
-        blockProver =
-            IBlockProver(_blockProver == address(0) ? AttestcoinPrecompiles.BLOCK_PROVER : _blockProver);
+        blockProver = IBlockProver(_blockProver == address(0) ? AttestcoinPrecompiles.BLOCK_PROVER : _blockProver);
     }
 
     // -----------------------------------------------------------------------
@@ -211,9 +205,7 @@ contract AttestPayASC {
     ) external returns (uint256 recorded) {
         // 1. Prove inclusion. The precompile reverts on a bad proof; a `false` return
         //    is handled too rather than assumed impossible.
-        bool proven = blockProver.verify(
-            sourceChainKey, height, encodedTransaction, merkleProof, continuityProof
-        );
+        bool proven = blockProver.verify(sourceChainKey, height, encodedTransaction, merkleProof, continuityProof);
         if (!proven) revert ProofRejected();
 
         // 2. Establish WHERE in the attested chain this transaction sits. txIndex is
@@ -256,11 +248,7 @@ contract AttestPayASC {
 
     /// @dev Decodes a `PaymentAnchored` log into its fields. Caller must have already
     /// confirmed the emitter and `topics[0]`, and that `topics.length == 4`.
-    function _decodeAnchoredLog(ProvenTxDecoder.Log memory log)
-        private
-        pure
-        returns (AnchoredEvent memory ev)
-    {
+    function _decodeAnchoredLog(ProvenTxDecoder.Log memory log) private pure returns (AnchoredEvent memory ev) {
         // Indexed arguments live in topics 1..3, in declaration order.
         ev.cardId = log.topics[1];
         ev.payer = ProvenTxDecoder.topicToAddress(log.topics[2]);
@@ -273,12 +261,10 @@ contract AttestPayASC {
 
     /// @dev Decodes one `PaymentAnchored` log and records it. Returns false when this
     /// exact event was already verified (idempotent replay, not an error).
-    function _recordFromLog(
-        ProvenTxDecoder.Log memory log,
-        uint64 height,
-        uint64 txIndex,
-        uint256 logIndex
-    ) private returns (bool) {
+    function _recordFromLog(ProvenTxDecoder.Log memory log, uint64 height, uint64 txIndex, uint256 logIndex)
+        private
+        returns (bool)
+    {
         bytes32 eventKey = eventKeyOf(sourceChainKey, height, txIndex, logIndex);
         if (provenEvents[eventKey]) return false;
 
@@ -292,7 +278,8 @@ contract AttestPayASC {
 
         (bool withinTerms, bool termsChecked) = _checkTerms(ev.cardId, ev.amount, ev.paidAt);
 
-        _cardPayments[ev.cardId].push(
+        _cardPayments[ev.cardId]
+        .push(
             VerifiedPayment({
                 cardId: ev.cardId,
                 payer: ev.payer,
@@ -310,9 +297,7 @@ contract AttestPayASC {
 
         _bumpCredit(ev, withinTerms, termsChecked);
 
-        emit PaymentVerified(
-            ev.cardId, ev.payer, ev.sourceTxHash, ev.amount, height, withinTerms, termsChecked
-        );
+        emit PaymentVerified(ev.cardId, ev.payer, ev.sourceTxHash, ev.amount, height, withinTerms, termsChecked);
         return true;
     }
 
@@ -419,11 +404,7 @@ contract AttestPayASC {
         return _cardPayments[cardId].length;
     }
 
-    function getCardPayment(bytes32 cardId, uint256 index)
-        external
-        view
-        returns (VerifiedPayment memory)
-    {
+    function getCardPayment(bytes32 cardId, uint256 index) external view returns (VerifiedPayment memory) {
         return _cardPayments[cardId][index];
     }
 
@@ -454,11 +435,7 @@ contract AttestPayASC {
     }
 
     /// @notice Whether a specific anchored event has already been verified here.
-    function isEventVerified(uint64 height, uint64 txIndex, uint256 logIndex)
-        external
-        view
-        returns (bool)
-    {
+    function isEventVerified(uint64 height, uint64 txIndex, uint256 logIndex) external view returns (bool) {
         return provenEvents[eventKeyOf(sourceChainKey, height, txIndex, logIndex)];
     }
 }

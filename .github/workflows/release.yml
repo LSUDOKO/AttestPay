@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: semantic-release
+    runs-on: ubuntu-latest
+    # Don't chase our own tail: the release commit is pushed by this job.
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    permissions:
+      contents: write       # create tags, releases, and push the release commit
+      issues: write         # comment on released issues
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0     # semantic-release reads the full history to pick the bump
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - run: bun install --frozen-lockfile
+      # Gate the release on the same checks CI runs, so a tag never points at a red tree.
+      - run: bun run typecheck
+      - run: bun run test
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npx --yes \
+            -p semantic-release@24 \
+            -p @semantic-release/changelog@6 \
+            -p @semantic-release/git@10 \
+            -p conventional-changelog-conventionalcommits@8 \
+            semantic-release

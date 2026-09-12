@@ -61,16 +61,12 @@ contract AttestPayASCTest is Test {
 
     function _emptyMerkle() internal pure returns (IBlockProver.TransactionMerkleProof memory p) {
         p = IBlockProver.TransactionMerkleProof({
-            root: keccak256("root"),
-            siblings: new IBlockProver.MerkleProofEntry[](0)
+            root: keccak256("root"), siblings: new IBlockProver.MerkleProofEntry[](0)
         });
     }
 
     function _emptyContinuity() internal pure returns (IBlockProver.ContinuityProof memory p) {
-        p = IBlockProver.ContinuityProof({
-            lowerEndpointDigest: keccak256("lower"),
-            roots: new bytes32[](0)
-        });
+        p = IBlockProver.ContinuityProof({lowerEndpointDigest: keccak256("lower"), roots: new bytes32[](0)});
     }
 
     function _verify(bytes memory encoded) internal returns (uint256) {
@@ -85,9 +81,8 @@ contract AttestPayASCTest is Test {
     /// ASC's hardcoded topic ever drift apart, every proof would silently find no
     /// anchor log — so pin them together rather than trusting two copies of a string.
     function test_anchoredTopicMatchesAnchorEvent() public view {
-        bytes32 fromAnchor = keccak256(
-            "PaymentAnchored(bytes32,address,address,uint256,uint256,bytes32,uint256,address,string)"
-        );
+        bytes32 fromAnchor =
+            keccak256("PaymentAnchored(bytes32,address,address,uint256,uint256,bytes32,uint256,address,string)");
         assertEq(asc.PAYMENT_ANCHORED_TOPIC(), fromAnchor);
     }
 
@@ -110,8 +105,7 @@ contract AttestPayASCTest is Test {
     // -----------------------------------------------------------------------
 
     function test_verifiesAndRecordsPayment() public {
-        bytes memory encoded =
-            AttestcoinEncoding.encodeType2(1, _logs(_anchored(2_000_000, 1_756_900_000, ANCHORER)));
+        bytes memory encoded = AttestcoinEncoding.encodeType2(1, _logs(_anchored(2_000_000, 1_756_900_000, ANCHORER)));
 
         assertEq(_verify(encoded), 1);
 
@@ -140,8 +134,7 @@ contract AttestPayASCTest is Test {
     /// The decoder's "receipt is the last chunk" rule must hold for a 4-chunk type-4
     /// transaction too, not just the 3-chunk type-2 shape.
     function test_decodesType4FourChunkTransaction() public {
-        bytes memory encoded =
-            AttestcoinEncoding.encodeType4(1, _logs(_anchored(1_500_000, 1_756_900_000, ANCHORER)));
+        bytes memory encoded = AttestcoinEncoding.encodeType4(1, _logs(_anchored(1_500_000, 1_756_900_000, ANCHORER)));
         assertEq(_verify(encoded), 1);
         assertEq(asc.getCardPayment(CARD, 0).amount, 1_500_000);
     }
@@ -179,8 +172,7 @@ contract AttestPayASCTest is Test {
     /// revert must propagate rather than be swallowed into a no-op success.
     function test_rejectedProofRevertsAndRecordsNothing() public {
         prover.setShouldVerify(false);
-        bytes memory encoded =
-            AttestcoinEncoding.encodeType2(1, _logs(_anchored(2_000_000, 1_756_900_000, ANCHORER)));
+        bytes memory encoded = AttestcoinEncoding.encodeType2(1, _logs(_anchored(2_000_000, 1_756_900_000, ANCHORER)));
         vm.expectRevert(MockBlockProver.MockProofRejected.selector);
         _verify(encoded);
         assertEq(asc.getCardPaymentCount(CARD), 0);
@@ -191,8 +183,7 @@ contract AttestPayASCTest is Test {
     function test_proofReturningFalseIsRejected() public {
         prover.setShouldVerify(false);
         prover.setReturnFalseInsteadOfReverting(true);
-        bytes memory encoded =
-            AttestcoinEncoding.encodeType2(1, _logs(_anchored(2_000_000, 1_756_900_000, ANCHORER)));
+        bytes memory encoded = AttestcoinEncoding.encodeType2(1, _logs(_anchored(2_000_000, 1_756_900_000, ANCHORER)));
         vm.expectRevert(AttestPayASC.ProofRejected.selector);
         _verify(encoded);
         assertEq(asc.getCardPaymentCount(CARD), 0);
@@ -223,11 +214,8 @@ contract AttestPayASCTest is Test {
     /// The ASC must only credit the anchorer it trusts.
     function test_rejectsAnchorFromUntrustedAnchorer() public {
         address impostor = address(0xDEAD);
-        bytes memory encoded =
-            AttestcoinEncoding.encodeType2(1, _logs(_anchored(50_000_000, 1_756_900_000, impostor)));
-        vm.expectRevert(
-            abi.encodeWithSelector(AttestPayASC.UntrustedAnchorer.selector, impostor, ANCHORER)
-        );
+        bytes memory encoded = AttestcoinEncoding.encodeType2(1, _logs(_anchored(50_000_000, 1_756_900_000, impostor)));
+        vm.expectRevert(abi.encodeWithSelector(AttestPayASC.UntrustedAnchorer.selector, impostor, ANCHORER));
         _verify(encoded);
         assertEq(asc.getCardPaymentCount(CARD), 0);
     }
@@ -244,8 +232,7 @@ contract AttestPayASCTest is Test {
     /// A source transaction that REVERTED emits no real payment; recording it would
     /// turn a failed payment into credit history.
     function test_rejectsRevertedSourceTransaction() public {
-        bytes memory encoded =
-            AttestcoinEncoding.encodeType2(0, _logs(_anchored(2_000_000, 1_756_900_000, ANCHORER)));
+        bytes memory encoded = AttestcoinEncoding.encodeType2(0, _logs(_anchored(2_000_000, 1_756_900_000, ANCHORER)));
         vm.expectRevert(ProvenTxDecoder.TransactionReverted.selector);
         _verify(encoded);
         assertEq(asc.getCardPaymentCount(CARD), 0);
@@ -254,8 +241,7 @@ contract AttestPayASCTest is Test {
     /// Replaying the same proof must not inflate the record. The second call is a
     /// no-op returning 0, not a revert: relayers legitimately retry.
     function test_replayOfSameProofRecordsNothingNewly() public {
-        bytes memory encoded =
-            AttestcoinEncoding.encodeType2(1, _logs(_anchored(2_000_000, 1_756_900_000, ANCHORER)));
+        bytes memory encoded = AttestcoinEncoding.encodeType2(1, _logs(_anchored(2_000_000, 1_756_900_000, ANCHORER)));
 
         assertEq(_verify(encoded), 1);
         assertEq(_verify(encoded), 0);
@@ -268,8 +254,7 @@ contract AttestPayASCTest is Test {
     /// The replay key includes txIndex, which the PRECOMPILE derives. Two distinct
     /// transactions at the same height must both record.
     function test_sameHeightDifferentTxIndexBothRecord() public {
-        bytes memory encoded =
-            AttestcoinEncoding.encodeType2(1, _logs(_anchored(1_000_000, 1_756_900_000, ANCHORER)));
+        bytes memory encoded = AttestcoinEncoding.encodeType2(1, _logs(_anchored(1_000_000, 1_756_900_000, ANCHORER)));
 
         prover.setTxIndex(0);
         assertEq(_verify(encoded), 1);
@@ -285,10 +270,8 @@ contract AttestPayASCTest is Test {
 
     /// Anchors can be proven out of order; firstPaymentAt must stay the true earliest.
     function test_outOfOrderProofsKeepTrueFirstAndLast() public {
-        bytes memory later =
-            AttestcoinEncoding.encodeType2(1, _logs(_anchored(1_000_000, 1_757_000_000, ANCHORER)));
-        bytes memory earlier =
-            AttestcoinEncoding.encodeType2(1, _logs(_anchored(1_000_000, 1_756_000_000, ANCHORER)));
+        bytes memory later = AttestcoinEncoding.encodeType2(1, _logs(_anchored(1_000_000, 1_757_000_000, ANCHORER)));
+        bytes memory earlier = AttestcoinEncoding.encodeType2(1, _logs(_anchored(1_000_000, 1_756_000_000, ANCHORER)));
 
         prover.setTxIndex(0);
         _verify(later);
@@ -304,8 +287,7 @@ contract AttestPayASCTest is Test {
     /// An unregistered card must NOT score a free 100% compliance rate: with no terms
     /// on file there is nothing to comply with, so the payment is not counted either way.
     function test_unregisteredCardIsNotCountedAsWithinTerms() public {
-        bytes memory encoded =
-            AttestcoinEncoding.encodeType2(1, _logs(_anchored(2_000_000, 1_756_900_000, ANCHORER)));
+        bytes memory encoded = AttestcoinEncoding.encodeType2(1, _logs(_anchored(2_000_000, 1_756_900_000, ANCHORER)));
         _verify(encoded);
 
         AttestPayASC.AgentCredit memory c = asc.getAgentCredit(PAYER);
@@ -316,8 +298,7 @@ contract AttestPayASCTest is Test {
     function test_paymentWithinRegisteredTermsCounts() public {
         asc.registerCardTerms(CARD, keccak256("terms"), 10_000_000, 604800, 5_000_000, 0);
         uint256 paidAt = block.timestamp + 10;
-        bytes memory encoded =
-            AttestcoinEncoding.encodeType2(1, _logs(_anchored(2_000_000, paidAt, ANCHORER)));
+        bytes memory encoded = AttestcoinEncoding.encodeType2(1, _logs(_anchored(2_000_000, paidAt, ANCHORER)));
         _verify(encoded);
 
         AttestPayASC.AgentCredit memory c = asc.getAgentCredit(PAYER);
@@ -328,8 +309,7 @@ contract AttestPayASCTest is Test {
     function test_paymentOverPerTxMaxIsCheckedAndFails() public {
         asc.registerCardTerms(CARD, keccak256("terms"), 10_000_000, 604800, 1_000_000, 0);
         uint256 paidAt = block.timestamp + 10;
-        bytes memory encoded =
-            AttestcoinEncoding.encodeType2(1, _logs(_anchored(9_000_000, paidAt, ANCHORER)));
+        bytes memory encoded = AttestcoinEncoding.encodeType2(1, _logs(_anchored(9_000_000, paidAt, ANCHORER)));
         _verify(encoded);
 
         AttestPayASC.AgentCredit memory c = asc.getAgentCredit(PAYER);
@@ -342,8 +322,7 @@ contract AttestPayASCTest is Test {
     function test_paymentAfterExpiryIsCheckedAndFails() public {
         uint256 expiry = block.timestamp + 100;
         asc.registerCardTerms(CARD, keccak256("terms"), 0, 0, 0, expiry);
-        bytes memory encoded =
-            AttestcoinEncoding.encodeType2(1, _logs(_anchored(1_000_000, expiry + 1, ANCHORER)));
+        bytes memory encoded = AttestcoinEncoding.encodeType2(1, _logs(_anchored(1_000_000, expiry + 1, ANCHORER)));
         _verify(encoded);
 
         AttestPayASC.AgentCredit memory c = asc.getAgentCredit(PAYER);
@@ -355,9 +334,8 @@ contract AttestPayASCTest is Test {
     function test_termsRegisteredAfterPaymentAreNotRetroactive() public {
         asc.registerCardTerms(CARD, keccak256("terms"), 0, 0, 1, 0); // perTxMax of 1 atom
         uint256 paidAtBeforeRegistration = block.timestamp - 1000;
-        bytes memory encoded = AttestcoinEncoding.encodeType2(
-            1, _logs(_anchored(9_000_000, paidAtBeforeRegistration, ANCHORER))
-        );
+        bytes memory encoded =
+            AttestcoinEncoding.encodeType2(1, _logs(_anchored(9_000_000, paidAtBeforeRegistration, ANCHORER)));
         _verify(encoded);
 
         AttestPayASC.AgentCredit memory c = asc.getAgentCredit(PAYER);
@@ -416,9 +394,7 @@ contract AttestPayASCTest is Test {
     function test_pagedPaymentsReadClampsToLength() public {
         for (uint64 i = 0; i < 5; i++) {
             prover.setTxIndex(i);
-            _verify(AttestcoinEncoding.encodeType2(
-                1, _logs(_anchored(1_000_000 + i, 1_756_900_000 + i, ANCHORER))
-            ));
+            _verify(AttestcoinEncoding.encodeType2(1, _logs(_anchored(1_000_000 + i, 1_756_900_000 + i, ANCHORER))));
         }
         assertEq(asc.getCardPaymentCount(CARD), 5);
         assertEq(asc.getCardPayments(CARD, 0, 2).length, 2);

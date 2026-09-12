@@ -1,0 +1,56 @@
+name: Bug report
+description: Something behaves differently from what it says it does
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If the bug could move funds or let a payment record be falsified, please report it
+        privately instead: [security advisory](https://github.com/LSUDOKO/AttestPay/security/advisories/new).
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - contracts (PaymentAnchor / AttestPayASC / decoder)
+        - engine (delegations, spend, Attestcoin pipeline)
+        - server (REST API, MCP tools, OAuth)
+        - dashboard
+        - docs
+        - not sure
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened instead
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Commands, requests, or the MCP tool call. Include the card/charge id if there is one.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: |
+        Error output, and any on-chain hashes involved (source tx, anchor tx, verify tx).
+        Never paste a private key or a card secret.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: "0.18.0, or the commit SHA"
+  - type: checkboxes
+    id: attestcoin
+    attributes:
+      label: Attestcoin integration
+      options:
+        - label: The Attestcoin integration was configured (all three required env vars set)
+        - label: "`bun run packages/engine/scripts/attestcoin-probe.ts` exits 0"

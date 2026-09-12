@@ -36,9 +36,7 @@ contract PaymentAnchorTest is Test {
     function test_emitsAnchoredEventWithSenderRecorded() public {
         address sender = address(0xABCD);
         vm.expectEmit(true, true, true, true);
-        emit PaymentAnchored(
-            CARD, PAYER, MERCHANT, 2_000_000, 8453, BASE_TX, 1_756_900_000, sender, "coffee"
-        );
+        emit PaymentAnchored(CARD, PAYER, MERCHANT, 2_000_000, 8453, BASE_TX, 1_756_900_000, sender, "coffee");
         vm.prank(sender);
         _anchor(2_000_000, BASE_TX);
     }

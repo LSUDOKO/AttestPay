@@ -1,0 +1,9 @@
+# Default owner for everything.
+*                       @LSUDOKO
+
+# The parts where a mistake is expensive: contracts move records onto public chains,
+# and the Attestcoin surface is what decides whether something counts as "verified".
+/contracts/             @LSUDOKO
+/packages/engine/src/attestcoin/   @LSUDOKO
+/packages/server/src/attestcoin/   @LSUDOKO
+/SECURITY.md            @LSUDOKO

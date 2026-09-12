@@ -31,13 +31,11 @@ contract MockBlockProver is IBlockProver {
         txIndexToReturn = i;
     }
 
-    function verify(
-        uint64,
-        uint64,
-        bytes calldata,
-        TransactionMerkleProof calldata,
-        ContinuityProof calldata
-    ) external view returns (bool) {
+    function verify(uint64, uint64, bytes calldata, TransactionMerkleProof calldata, ContinuityProof calldata)
+        external
+        view
+        returns (bool)
+    {
         if (!shouldVerify) {
             if (returnFalseInsteadOfReverting) return false;
             revert MockProofRejected();

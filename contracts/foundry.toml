@@ -18,3 +18,9 @@ creditcoin = "${ATTESTPAY_CREDITCOIN_HTTP_RPC}"
 
 [etherscan]
 sepolia = { key = "${ETHERSCAN_API_KEY}", chain = 11155111 }
+
+# Formatting is enforced in CI (`forge fmt --check`), so the sources are normalised to
+# these settings once rather than left at whatever width each was authored to.
+[fmt]
+line_length = 120
+tab_width = 4

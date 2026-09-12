@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/LSUDOKO/AttestPay/security/advisories/new
+    about: Report privately. Please do not open a public issue for anything that could move funds or falsify a record.
+  - name: Attestcoin integration guide
+    url: https://github.com/LSUDOKO/AttestPay/blob/main/docs/attestcoin-integration.md
+    about: How the cross-chain proof pipeline works, including what a proof does and does not establish.

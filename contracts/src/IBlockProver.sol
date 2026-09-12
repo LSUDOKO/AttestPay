@@ -70,10 +70,7 @@ interface IChainInfo {
 
     function is_height_attested(uint64 chainKey, uint64 height) external view returns (bool);
 
-    function get_latest_attestation_height_and_hash(uint64 chainKey)
-        external
-        view
-        returns (HeightHashResult memory);
+    function get_latest_attestation_height_and_hash(uint64 chainKey) external view returns (HeightHashResult memory);
 }
 
 /// @dev Canonical precompile addresses on Creditcoin.

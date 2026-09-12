@@ -11,24 +11,15 @@ import {ProvenTxDecoder} from "../src/ProvenTxDecoder.sol";
 /// `abi.encode(uint8 status, uint64 gasUsed, (address,bytes32[],bytes)[] logs, bytes logsBloom)`.
 library AttestcoinEncoding {
     /// @notice Encodes a receipt chunk.
-    function receiptChunk(uint8 status, ProvenTxDecoder.Log[] memory logs)
-        internal
-        pure
-        returns (bytes memory)
-    {
+    function receiptChunk(uint8 status, ProvenTxDecoder.Log[] memory logs) internal pure returns (bytes memory) {
         return abi.encode(status, uint64(21000), logs, new bytes(256));
     }
 
     /// @notice Encodes a full type-2 (EIP-1559) transaction blob: 3 chunks, receipt last.
-    function encodeType2(uint8 status, ProvenTxDecoder.Log[] memory logs)
-        internal
-        pure
-        returns (bytes memory)
-    {
+    function encodeType2(uint8 status, ProvenTxDecoder.Log[] memory logs) internal pure returns (bytes memory) {
         bytes[] memory chunks = new bytes[](3);
-        chunks[0] = abi.encode(
-            uint64(7), uint64(500000), address(0xBEEF), false, address(0xCAFE), uint256(0), hex"1234"
-        );
+        chunks[0] =
+            abi.encode(uint64(7), uint64(500000), address(0xBEEF), false, address(0xCAFE), uint256(0), hex"1234");
         chunks[1] = abi.encode(uint64(11155111), uint128(1), uint128(2));
         chunks[2] = receiptChunk(status, logs);
         return abi.encode(uint8(2), chunks);
@@ -37,15 +28,10 @@ library AttestcoinEncoding {
     /// @notice Encodes a full type-4 (EIP-7702) transaction blob: 4 chunks, receipt last.
     /// @dev Exists so the decoder's "last chunk, whatever the type" rule is actually
     /// tested against a differing chunk count, not just asserted in a comment.
-    function encodeType4(uint8 status, ProvenTxDecoder.Log[] memory logs)
-        internal
-        pure
-        returns (bytes memory)
-    {
+    function encodeType4(uint8 status, ProvenTxDecoder.Log[] memory logs) internal pure returns (bytes memory) {
         bytes[] memory chunks = new bytes[](4);
-        chunks[0] = abi.encode(
-            uint64(7), uint64(500000), address(0xBEEF), false, address(0xCAFE), uint256(0), hex"1234"
-        );
+        chunks[0] =
+            abi.encode(uint64(7), uint64(500000), address(0xBEEF), false, address(0xCAFE), uint256(0), hex"1234");
         chunks[1] = abi.encode(uint64(11155111), uint128(1), uint128(2));
         chunks[2] = abi.encode(uint8(0), bytes32(0), bytes32(0));
         chunks[3] = receiptChunk(status, logs);

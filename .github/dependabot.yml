@@ -1,0 +1,47 @@
+# Dependency updates. Grouped so a routine week produces a couple of reviewable PRs
+# rather than twenty; security updates are deliberately left ungrouped so they arrive
+# on their own and can be merged without reading an unrelated diff.
+version: 2
+updates:
+  - package-ecosystem: "bun"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    groups:
+      opentelemetry:
+        patterns: ["@opentelemetry/*"]
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom", "next"]
+      types:
+        patterns: ["@types/*"]
+        exclude-patterns: ["@types/react", "@types/react-dom"]
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # Pinned on purpose: the delegation signatures the SDK produces must match what
+      # the deployed DelegationManager accepts, so this moves only deliberately.
+      - dependency-name: "@metamask/smart-accounts-kit"
+      # viem is pinned to an exact version across packages; bumping it in one place
+      # only would desync the workspace.
+      - dependency-name: "viem"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels: ["dependencies", "ci"]
+    commit-message:
+      prefix: "chore"
+    groups:
+      actions:
+        patterns: ["*"]
