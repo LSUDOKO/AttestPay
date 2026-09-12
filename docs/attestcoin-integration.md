@@ -724,3 +724,43 @@ Stated rather than buried.
 
 7. **Testnet only.** Attestcoin mainnet attests Ethereum mainnet (`chainKey = 3`);
    the code takes the chain key from configuration, but no mainnet deployment exists.
+
+## Deployed addresses (CC3 testnet, 2026-09-12)
+
+| Chain | Contract | Address |
+|---|---|---|
+| Ethereum Sepolia (11155111) | `PaymentAnchor` | [`0x881c55745372DfCB7dEC9B13F499b167164e2121`](https://sepolia.etherscan.io/address/0x881c55745372DfCB7dEC9B13F499b167164e2121) |
+| Creditcoin CC3 (102031) | `AttestPayASC` | [`0x881c55745372DfCB7dEC9B13F499b167164e2121`](https://creditcoin-testnet.blockscout.com/address/0x881c55745372DfCB7dEC9B13F499b167164e2121) |
+
+Same address on both chains: one deployer at nonce 0 on each chain, not a mistake.
+
+`AttestPayASC` immutables, read back from the live chain:
+
+```
+sourceChainKey  1                                           # Ethereum Sepolia
+paymentAnchor   0x881c55745372DfCB7dEC9B13F499b167164e2121
+trustedAnchorer 0x66b6082Eb6c7a9457F25479fa35b6061F2c4EC5a
+blockProver     0x0000000000000000000000000000000000000FD2   # canonical precompile
+```
+
+### Deploying the ASC: forge script does not work on CC3
+
+`forge script` fails against the Creditcoin RPC with:
+
+```
+EVM error; header validation error: `prevrandao` not set
+```
+
+The node does not report `mixHash`/`prevrandao` on its block headers, so forge's local
+simulation refuses the block before any broadcast happens. The deployment itself is
+fine — skip the simulation and send the create directly:
+
+```bash
+BIN=$(jq -r '.bytecode.object' out/AttestPayASC.sol/AttestPayASC.json)
+ARGS=$(cast abi-encode "c(uint64,address,address,address)" \
+  1 "$ATTESTPAY_PAYMENT_ANCHOR_ADDRESS" "$ANCHORER" 0x0000000000000000000000000000000000000000)
+cast send --private-key "$PRIVATE_KEY" --rpc-url "$ATTESTPAY_CREDITCOIN_HTTP_RPC" \
+  --create "${BIN}${ARGS#0x}"
+```
+
+`DeployAnchor` on Sepolia works normally through `forge script`.
