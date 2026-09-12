@@ -699,7 +699,9 @@ Catalog prices are all $5 or less because approved purchases move real USDC.
 | [docs/blog-post.md](docs/blog-post.md) | The observability story: instrumenting agentic payments with OpenTelemetry + SigNoz |
 | [docs/medium-post.md](docs/medium-post.md) | Medium-ready version of the observability story with screenshot placeholders (IMG-1..IMG-13) |
 | [docs/screenshots/README.md](docs/screenshots/README.md) | Which screenshot goes where: drop files as `img-01.png`..`img-13.png` |
-| [docs/video-script.md](docs/video-script.md) | Demo video script (3 minutes) |
+| [docs/video-script.md](docs/video-script.md) | Demo video script, SigNoz cut (3 minutes) |
+| [docs/video-script-attestcoin.md](docs/video-script-attestcoin.md) | Demo video script, cross-chain cut for BUIDL CTC (3 minutes) |
+| [docs/hackathon-deck.md](docs/hackathon-deck.md) | Project deck source (10 slides; renders to PDF with Marp) |
 | [CHANGELOG.md](CHANGELOG.md) | Release history |
 
 ---

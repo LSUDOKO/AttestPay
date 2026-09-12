@@ -1,6 +1,89 @@
 # Changelog
 
-All notable changes to remit are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
+All notable changes to AttestPay are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
+
+## [0.18.0] - 2026-09-12
+
+The project is renamed **AttestPay**, and every confirmed payment is now proven
+cross-chain onto Creditcoin via the Attestcoin Protocol.
+
+### Added
+
+- **Attestcoin cross-chain payment verification.** A new `contracts/` Foundry project
+  (`PaymentAnchor` on Ethereum Sepolia, `AttestPayASC` on Creditcoin CC3 testnet,
+  `ProvenTxDecoder`, the real precompile interfaces) plus
+  `packages/engine/src/attestcoin/` — the proof pipeline as a persisted state machine
+  (`pending → anchoring → anchored → attested → proving → verified`). Each confirmed
+  payment is anchored on an attested chain and proven into Creditcoin by the Block
+  Prover precompile (`0x0FD2`), producing public `AgentCredit` history any Creditcoin
+  contract can read. Optional and off by default: with no Attestcoin environment
+  variables the server behaves exactly as before, and it logs which variables are
+  missing rather than no-oping silently.
+
+  Two things in the original plan turned out to be wrong and are corrected here. The
+  protocol attests only Ethereum mainnet and Ethereum Sepolia — `get_supported_chains()`
+  on the ChainInfo precompile confirms it — so Base cannot be a source chain and the
+  anchor lives on Sepolia. And the precompile's real signature returns a bare `bool` and
+  reverts on a bad proof rather than returning the proven transaction's bytes, which
+  forces the central design decision: `verifyPayment` takes the proof and **nothing
+  else**, decoding every recorded field out of the proven transaction bytes. Accepting
+  payment facts as parameters beside a proof would let a caller staple arbitrary data to
+  one valid proof and mint unlimited "verified" history.
+
+- **Four MCP tools** — `verify_payment`, `payment_receipt`, `credit_score`,
+  `cross_chain_status` — registered only when the integration is configured, so a card
+  is never offered a tool that can only answer "not configured". `payment_receipt`
+  returns the trust model verbatim: what the proof establishes (the anchor's inclusion in
+  an attested block, trustlessly) and what it does not (that the Base payment happened —
+  the server writes the anchor).
+
+- **Six REST endpoints** under `/api` for proofs, credit score, health and aggregate
+  stats, plus a **Cross-Chain pane** in the dashboard dossier with credit standing,
+  protocol health and a proof table linking all three legs of each payment. Degraded
+  answers say they are degraded: a cached credit figure is tagged `cached`, and a failed
+  health probe returns `null` rather than a reassuring zero.
+
+- **`onChargeConfirmed` hook on `SpendDeps`**, so every confirmation path feeds the
+  pipeline — pay, execute, fiat settlement and the reconcile sweep alike. Wrapped so a
+  broken queue can never fail a payment that already landed on-chain.
+
+- **A read-only liveness probe**,
+  `bun run packages/engine/scripts/attestcoin-probe.ts`: checks the protocol and the
+  deployment end to end without gas or a funded key.
+
+- **Documentation**: [`docs/attestcoin-integration.md`](docs/attestcoin-integration.md)
+  (15 sections, every protocol claim paired with a command that verifies it, limitations
+  listed explicitly), a README section, a deck source, and a demo script for this panel.
+
+- **SigNoz instrumentation of the whole proof lifecycle**: spans per stage, plus
+  histograms for attestation wait, proof generation, submission, end-to-end latency and
+  attestation lag.
+
+### Changed
+
+- **Renamed GlassPay → AttestPay** across 81 files: workspace scopes
+  (`@attestpay/engine|server|dashboard`), every `ATTESTPAY_*` environment variable, OTel
+  metric and span names, localStorage keys, and the signed onboard-proof domain. Three
+  `glasspay` strings are deliberately unchanged because they name live infrastructure
+  that has not been renamed: `glasspay-production.up.railway.app`, `glasspay.xyz`, and
+  `service.name=glasspay-collector`. Note that the metric rename means existing SigNoz
+  dashboards query stale names until updated.
+- Pinned `@types/bun` to `1.3.14` across the workspace; all three packages declared
+  `latest` and had drifted apart.
+
+### Fixed
+
+- **`chains.ts` read `process.env.glasspay_RPC_URL` in lowercase** while `.env.example`
+  documents the uppercase name, so a configured Alchemy RPC was never picked up and every
+  Base call silently used the rate-limited public endpoint. Now `ATTESTPAY_RPC_URL`.
+- **`globalThis.fetch` in `stripe/client.ts` broke the server typecheck** once `ethers`
+  entered the dependency graph: indexing `globalThis` depends on whichever ambient type
+  packages are in scope. Switched to the bare global binding, which the runtime's own lib
+  types directly.
+- **`stripe-client.test.ts` asserted `calls[0]` was the authorization request**, but
+  `createTestAuthorization` had since been changed to fund the test Issuing balance
+  first. The test was stale, not the implementation; it now asserts the full call order,
+  which is the behaviour that actually matters. The suite is green for the first time.
 
 ## [0.17.2] - 2026-06-15
 

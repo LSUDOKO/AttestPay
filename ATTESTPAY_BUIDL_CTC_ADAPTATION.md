@@ -1,5 +1,46 @@
 # AttestPay × Attestcoin Protocol — BUIDL CTC 2026 Fall Adaptation Guide
 
+> ## ⚠️ Status: IMPLEMENTED — with three corrections
+>
+> This was the **plan**. It has been built, and three things in it turned out to be
+> wrong when checked against the live protocol. They are corrected in the code and in
+> [`docs/attestcoin-integration.md`](docs/attestcoin-integration.md), which is the
+> accurate reference. This document is kept for provenance; **do not implement from it
+> directly.**
+>
+> **1. Base cannot be a source chain.** §4 and §5 place `PaymentLogger` on Base Sepolia
+> with `chainKey = 1`. The Attestcoin protocol on CC3 testnet attests exactly two source
+> chains — `chainKey 3` (Ethereum mainnet) and `chainKey 1` (Ethereum Sepolia) — as
+> `get_supported_chains()` on the ChainInfo precompile reports. Base is not among them,
+> so a Base transaction cannot be proven into Creditcoin at all. The anchor contract
+> (`PaymentAnchor`, renamed from `PaymentLogger`) is deployed on **Ethereum Sepolia**.
+> §1 of this document already anticipated this as a fallback; it is the only option.
+>
+> **2. The Block Prover interface in §5 is not the real one.** The actual precompile is
+> `verify(uint64 chainKey, uint64 height, bytes encodedTransaction, (bytes32,(bytes32,bool)[]) merkleProof, (bytes32,bytes32[]) continuityProof) returns (bool)`.
+> It returns a bare `bool` and **reverts** on a bad proof; it does **not** return
+> `(bool verified, bytes txData)`. The ChainInfo precompile at `0x…0fD3` also uses
+> snake_case names — the camelCase spellings revert with `Unknown selector`.
+>
+> **3. The `verifyPayment` signature in §5 is unsound and was not implemented.** It
+> accepts `cardId`, `from`, `to`, `amount`, `memo` and `sourceTimestamp` as parameters
+> **alongside** the proof, and never checks them against it. Since the proof and the
+> facts are independent, a valid proof of *any* attested transaction would let a caller
+> staple arbitrary payment data to it and mint unlimited "verified" credit history from
+> one real proof. `AttestPayASC.verifyPayment` therefore takes **the proof and nothing
+> else**, and decodes every recorded field out of the proven transaction bytes.
+>
+> Also worth stating plainly, because this document does not: the proof establishes that
+> the *anchor record* was included in an attested block, **not** that the Base payment
+> happened — the server writes the anchor. See
+> [the trust model](docs/attestcoin-integration.md#2-the-trust-model-stated-plainly).
+>
+> Everything else was built: the proof pipeline, the four MCP tools, the credit registry,
+> the card terms registry, the REST endpoints, the dashboard pane, and the SigNoz
+> instrumentation. Naming throughout is `AttestPay*`, not `GlassPay*`.
+
+---
+
 ## Complete Blueprint for Your AI Agent to Execute
 
 ---
@@ -16,16 +57,16 @@
 
 ## 2. Hackathon Compliance Checklist
 
-| Requirement | Status | Action Needed |
+| Requirement | Status | Evidence |
 |---|---|---|
-| Attestcoin Protocol integration as core feature | ❌ → ✅ | Deploy ASC on Creditcoin Testnet, integrate @gluwa/usc-sdk |
-| Deployed on testnet | ❌ → ✅ | Deploy contracts on Creditcoin CC3 Testnet (Chain ID 102031) |
-| Working integration code | ❌ → ✅ | Build proof generation + verification pipeline |
-| Technical documentation | ❌ → ✅ | Write Attestcoin integration docs in README |
-| GitHub repo with README | ✅ | Update existing repo |
-| Demo video | ✅ | Re-record with Attestcoin features |
-| Project deck / whitepaper | ❌ → ✅ | Create PDF |
-| Original work during hackathon | ⚠️ | All Attestcoin integration code must be new (Aug 13 – Sep 13) |
+| Attestcoin Protocol integration as core feature | ✅ | `contracts/AttestPayASC.sol` verifies proofs via the Block Prover precompile (`0x0FD2`); `packages/engine/src/attestcoin/` is the pipeline; every confirmed payment enters it automatically |
+| Deployed on testnet | ⏳ deploy step | Contracts build and test (42/42); `contracts/script/Deploy.s.sol` deploys to Ethereum Sepolia + Creditcoin CC3 (102031). **Needs a funded key** — Sepolia ETH and tCTC |
+| Working integration code | ✅ | End-to-end pipeline, 4 MCP tools, 6 REST endpoints, dashboard pane. `bun run packages/engine/scripts/attestcoin-probe.ts` verifies the live protocol read-only |
+| Technical documentation | ✅ | [`docs/attestcoin-integration.md`](docs/attestcoin-integration.md) — 15 sections, every protocol claim paired with a command that checks it |
+| GitHub repo with README | ✅ | README carries a Cross-Chain Verification section with the trust model stated up front |
+| Demo video | ⏳ | Script written for this panel in [`docs/video-script-attestcoin.md`](docs/video-script-attestcoin.md) (the existing `video-script.md` is the SigNoz cut); needs recording after deploy |
+| Project deck / whitepaper | ⏳ | Outline in [`docs/hackathon-deck.md`](docs/hackathon-deck.md); needs rendering to PDF |
+| Original work during hackathon | ✅ | All Attestcoin code is new; the pre-existing AttestPay base (Base payments, MCP, dashboard) is the foundation and is clearly separable in the git history |
 | Submission deadline | — | **September 13, 2026, 23:59 ET** |
 
 ---
@@ -881,11 +922,12 @@ verified cross-chain using the Attestcoin Protocol on Creditcoin."
 |---|---|
 | Project Name | AttestPay |
 | Project Sector | AI |
-| Project Description | Scoped, revocable spending cards for AI agents with cross-chain payment verification via the Attestcoin Protocol. Every agent payment on Base is cryptographically proven on Creditcoin, building verifiable on-chain credit history without trusted oracles. |
-| Attestcoin Protocol Integration Summary | AttestPay deploys an Attestcoin Smart Contract (ASC) on Creditcoin Testnet that verifies Base payment transactions using the Block Prover Precompile (0x0FD2). After each USDC payment on Base, the server generates Merkle + continuity proofs via @gluwa/usc-sdk, submits them to the ASC, and creates immutable cross-chain payment records. This builds agent credit history on Creditcoin and enables any dApp to verify an agent's payment track record trustlessly. Card terms are also registered on Creditcoin for cross-chain compliance verification. The full proof lifecycle is instrumented with OpenTelemetry and visible in SigNoz. |
+| Project Description | Scoped, revocable spending cards for AI agents, with every payment proven cross-chain onto Creditcoin. An agent plugs in a card over MCP and pays USDC on Base within limits its owner set; each confirmed payment is then anchored on an attested chain and proven into a Creditcoin smart contract by the Attestcoin Block Prover precompile, building public, checkable credit history for the agent that spent — with no oracle and no bridge. |
+| Attestcoin Protocol Integration Summary | AttestPay deploys `AttestPayASC` on Creditcoin CC3 testnet. It verifies Merkle inclusion and block continuity proofs synchronously via the Block Prover precompile (`0x0FD2`) in the same transaction that records the result, and reads the ChainInfo precompile (`0x0FD3`) for attestation state. Proofs are generated with `@gluwa/usc-sdk`. The central design decision: `verifyPayment` takes the proof and **nothing else** — every recorded field is decoded out of the proven transaction bytes, because facts passed as parameters beside a proof are not proven by it, and accepting them would let anyone attach arbitrary data to one valid proof and mint unlimited verified history. Replay is keyed on `(chainKey, height, txIndex, logIndex)`, all derived from proven data with `txIndex` coming from the precompile itself. Each verified payment updates an on-chain `AgentCredit` record any Creditcoin dApp can read, checked against a card-terms registry that distinguishes "within terms" from "terms never registered" rather than awarding unearned compliance. Because the protocol attests only Ethereum mainnet and Ethereum Sepolia — confirmed live via `get_supported_chains()`, Base is not attested — a `PaymentAnchor` contract on Ethereum Sepolia records each Base payment's facts and that anchoring transaction is what gets proven; the docs state precisely what this does and does not establish. The full proof lifecycle is instrumented with OpenTelemetry and visible in SigNoz. |
 | GitHub Repository URL | https://github.com/LSUDOKO/AttestPay |
+| Technical Documentation | https://github.com/LSUDOKO/AttestPay/blob/main/docs/attestcoin-integration.md |
 | Prototype Demo Video URL | (record and upload to YouTube) |
-| Project Deck | (create and host PDF) |
+| Project Deck | (render docs/hackathon-deck.md to PDF and host) |
 
 ---
 

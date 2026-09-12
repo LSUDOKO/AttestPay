@@ -42,7 +42,7 @@ import { registerTermsInBackground, revokeTermsInBackground, spendDeps, spendKey
 import { registerAttestcoinTools } from "./attestcoin-tools";
 import { recentFiatDecision } from "../stripe/decisions";
 
-const SERVER_INFO = { name: "attestpay", version: "0.17.2" };  // Surfaced to clients at initialize. Claude Code's tool search (default-on since mid-2026)
+const SERVER_INFO = { name: "attestpay", version: "0.18.0" };  // Surfaced to clients at initialize. Claude Code's tool search (default-on since mid-2026)
   // keys discovery on this text and truncates at 2KB: keep it a compact routing guide.
   const INSTRUCTIONS = [
     "remit is the agent's spending card: a scoped, revocable spending authority granted by the card owner. The connection itself is the card; it holds no funds of its own and every action is checked against the card's terms (per-payment cap, period budget, expiry, allowlists).",
