@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "bun run --cwd packages/server dev",
     "test": "bun test --timeout 30000",
-    "typecheck": "bun run --cwd packages/engine typecheck && bun run --cwd packages/server typecheck"
+    "typecheck": "bun run --cwd packages/engine typecheck && bun run --cwd packages/server typecheck && bun run --cwd packages/sdk typecheck"
   },
   "devDependencies": {
     "@types/bun": "1.3.14",
