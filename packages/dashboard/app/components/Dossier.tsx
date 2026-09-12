@@ -19,6 +19,7 @@ import { CardHero } from "./CardHero";
 import { ConnectOverlay } from "./ConnectOverlay";
 import { DeleteButton, RevokeButton, TermsGrid, allowance, caveatCount, perTradeEnforces } from "./Authority";
 import { ChargeList, feedStats, type FeedRow } from "./Activity";
+import { AttestcoinPane } from "./Attestcoin";
 import { SubRows } from "./SubCards";
 import {
   Barcode,
@@ -33,7 +34,7 @@ import {
 } from "./ui";
 
 type Remit = ReturnType<typeof useRemit>;
-type Tab = "activity" | "terms" | "subs";
+type Tab = "activity" | "terms" | "subs" | "crosschain";
 
 // the swap choreography, kept quiet: old and new content occupy the same
 // grid cell and CROSS-FADE · no mode="wait", so there is never a blank frame
@@ -155,6 +156,7 @@ export function Dossier({
     { key: "activity", label: "Activity" },
     { key: "terms", label: "Delegation Terms", disabled: !card },
     { key: "subs", label: "Sub-Cards", disabled: !card },
+    { key: "crosschain", label: "Cross-Chain", disabled: !card },
   ];
 
   return (
@@ -254,6 +256,9 @@ export function Dossier({
               {tab === "activity" && <ActivityPane card={card} feed={feed} />}
               {tab === "terms" && card && <TermsPane card={card} kAgent={kAgent} />}
               {tab === "subs" && card && node && <SubsPane card={card} node={node} kmap={kmap} />}
+              {tab === "crosschain" && card && (
+                <AttestcoinPane card={card} rowVariants={rowVariants as never} />
+              )}
             </motion.div>
           </AnimatePresence>
         </div>

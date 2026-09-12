@@ -1000,6 +1000,112 @@ main.narrow .panel { padding: 20px; }
   .fig .cur, .fig .dec { font-size: 22px; }
   .alist { overflow-y: visible; }
 }
+/* ---------------------------------------------------------------------------
+   Cross-chain pane (Attestcoin)
+   Reuses the dossier's .trow/.tl/.tv grammar so the pane reads as part of the
+   same document rather than a bolted-on panel.
+   --------------------------------------------------------------------------- */
+
+.acgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 10px 0 14px; align-items: start; }
+.accard { min-width: 0; border: 1px solid var(--hairline); border-radius: 12px; padding: 14px 16px; background: var(--panel); }
+.accard h3 {
+  font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--label); font-weight: 600; margin: 0 0 10px;
+}
+.accard .acrows .trow:first-child { border-top: 0; }
+.accard .trow { padding: 7px 0; }
+
+/* the grade: one large glyph, colour-coded, with the numeric score beside it */
+.acgrade-row { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+.acgrade {
+  font-family: var(--font-display); font-size: 40px; line-height: 1; font-weight: 600;
+  width: 58px; height: 58px; display: grid; place-items: center;
+  border-radius: 12px; background: var(--tint); color: var(--ink);
+}
+.acgrade.gA { background: var(--accent-tint); color: var(--accent-deep); }
+.acgrade.gB { background: var(--accent-tint); color: var(--accent-deep); }
+.acgrade.gC { background: var(--warn-tint); color: var(--warn-ink); }
+.acgrade.gD { background: var(--warn-tint); color: var(--warn-ink); }
+.acgrade.gF { background: var(--tint); color: var(--label); }
+.acgrade-side { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.acscore { font-size: 15px; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums lining-nums; }
+/* a cached reading is labelled, never passed off as live */
+.acstale {
+  font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--warn-ink); background: var(--warn-tint);
+  padding: 2px 6px; border-radius: 4px; align-self: flex-start;
+}
+.acbasis { font-size: 11.5px; color: var(--label); line-height: 1.55; margin: 10px 0 0; }
+.aclink { font-size: 12px; color: var(--accent-deep); text-decoration: none; display: inline-block; margin-top: 8px; }
+.aclink:hover { text-decoration: underline; }
+.accontracts { margin-top: 10px; font-size: 11.5px; line-height: 1.7; color: var(--body); }
+.accontracts .code { font-size: 11.5px; }
+.accontracts .w { color: var(--label); }
+
+/* health tones on a terms row value */
+.trow .tv.t-ok { color: var(--accent-deep); }
+.trow .tv.t-work { color: var(--warn-ink); }
+.trow .tv.t-bad { color: var(--danger); }
+
+/* the four-up summary strip */
+.acstats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 0 0 14px; }
+.acstat {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 10px 12px; border-radius: 10px; background: var(--tint); min-width: 0;
+}
+.acstat-l { font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--label); }
+.acstat-v { font-size: 17px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums lining-nums; }
+.acstat-v.bad { color: var(--danger); }
+
+/* the proof table: amount, three links, state */
+.acproofs { margin-top: 4px; }
+.acproof-head, .acproof {
+  display: grid; grid-template-columns: minmax(72px, 1fr) 62px 62px 72px minmax(120px, auto);
+  gap: 12px; align-items: center;
+}
+.acproof-head {
+  font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--label); padding-bottom: 7px; border-bottom: 1px solid var(--hairline);
+}
+.acproof { padding: 10px 0; border-top: 1px solid var(--hairline-soft); font-size: 12.5px; }
+.acproofs > .acproof:first-of-type { border-top: 0; }
+.acproof .num { font-variant-numeric: tabular-nums lining-nums; font-weight: 500; color: var(--ink); }
+.acproof .w { color: var(--label); }
+.acproof-state { display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+.acpill {
+  font-size: 10.5px; letter-spacing: 0.04em; padding: 3px 8px; border-radius: 999px;
+  white-space: nowrap; font-weight: 500;
+}
+/* three tones, not seven stages: done / working / broken */
+.acpill.p-ok { background: var(--accent-tint); color: var(--accent-deep); }
+.acpill.p-work { background: var(--warn-tint); color: var(--warn-ink); }
+.acpill.p-bad { background: var(--danger-tint); color: var(--danger); }
+
+.acretry {
+  font-size: 11px; padding: 3px 8px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--hairline-strong); background: var(--float); color: var(--ink);
+  transition: background 0.2s var(--ease);
+}
+.acretry:hover:not(:disabled) { background: var(--float-hover); }
+.acretry:disabled { opacity: 0.5; cursor: default; }
+.acerr {
+  grid-column: 1 / -1; font-size: 11.5px; color: var(--danger);
+  line-height: 1.5; padding-top: 2px; word-break: break-word;
+}
+
+@media (max-width: 900px) {
+  .acgrid { grid-template-columns: 1fr; }
+  .acstats { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 560px) {
+  /* the proof table is the one thing allowed its own scroller: five columns of
+     hashes cannot honestly collapse to phone width */
+  .acproofs { overflow-x: auto; }
+  .acproof-head, .acproof { grid-template-columns: 76px 54px 54px 64px 116px; min-width: 400px; }
+  .acgrade { width: 50px; height: 50px; font-size: 33px; }
+}
+
 @media (max-width: 720px) {
   .arow { grid-template-columns: 100px 1fr 80px 90px; }
   .a-state, .a-rcpt { display: none; }

@@ -168,6 +168,87 @@ export type FiatCard = {
   cardholder_name?: string | null;
 };
 
+// ---------------------------------------------------------------------------
+// Attestcoin cross-chain verification
+// ---------------------------------------------------------------------------
+
+/** Where a payment has reached in the cross-chain proof pipeline. */
+export type ProofStatus =
+  | "pending"
+  | "anchoring"
+  | "anchored"
+  | "attested"
+  | "proving"
+  | "verified"
+  | "failed";
+
+/** One leg of a payment's journey, with the link that proves it. */
+export type ProofLeg = { tx_hash: string; explorer: string | null; height?: number | null };
+
+export type AttestcoinProofRow = {
+  charge_id: string;
+  status: ProofStatus;
+  amount: string | null;
+  merchant: string | null;
+  memo: string | null;
+  /** the USDC transfer on Base */
+  source: ProofLeg | null;
+  /** the anchor on the attested source chain */
+  anchor: ProofLeg | null;
+  /** the verification on Creditcoin */
+  creditcoin: ProofLeg | null;
+  verified_at: string | null;
+  error: string | null;
+  attempts: number;
+  created_at: string | null;
+};
+
+export type AttestcoinProofs = {
+  configured: boolean;
+  items: AttestcoinProofRow[];
+  stats: {
+    total: number;
+    verified: number;
+    failed: number;
+    inFlight: number;
+    avg_verify_seconds: number | null;
+  } | null;
+};
+
+export type CreditScore = {
+  configured: boolean;
+  reason?: string;
+  error?: string;
+  /** false when the figures came from the local cache because Creditcoin was down */
+  live?: boolean;
+  synced_at?: string | null;
+  payer?: string;
+  grade?: "A" | "B" | "C" | "D" | "F";
+  score?: number;
+  basis?: string;
+  total_verified_payments?: number;
+  total_verified_volume?: string;
+  first_payment_at?: string | null;
+  last_payment_at?: string | null;
+  within_terms_payments?: number;
+  terms_checked_payments?: number;
+  asc_explorer?: string;
+};
+
+export type AttestcoinHealth = {
+  configured: boolean;
+  chainKey: number | null;
+  latestAttestedHeight: number | null;
+  sourceHead: number | null;
+  /** null means "could not find out", which is NOT the same as zero lag */
+  attestationLagBlocks: number | null;
+  queue: Record<ProofStatus, number>;
+  creditcoinChainId: number | null;
+  ascAddress: string | null;
+  anchorAddress: string | null;
+  error?: string;
+};
+
 export const api = {
   // --- Privy lane: onboard + client-signed issuance ---
   // proof = personal_sign("attestpay-onboard:v1:<did>") · binds the wallet to THIS login
@@ -230,6 +311,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ prepare_id: prepareId, signature }),
     }),
+
+  // --- Attestcoin cross-chain verification ---
+  attestcoinProofs: (id: string) => call<AttestcoinProofs>(`/cards/${id}/attestcoin-proofs`),
+  creditScore: (id: string) => call<CreditScore>(`/cards/${id}/credit-score`),
+  attestcoinHealth: () => call<AttestcoinHealth>("/attestcoin/health"),
+  verifyPayment: (id: string, chargeId: string) =>
+    call<{ queued: boolean; reason?: string; charge_id?: string; creditcoin_tx_hash?: string }>(
+      `/cards/${id}/attestcoin-verify`,
+      { method: "POST", body: JSON.stringify({ charge_id: chargeId }) },
+    ),
 
   // --- OAuth consent (the /connect card-picker page) ---
   oauthRequest: (id: string) =>
