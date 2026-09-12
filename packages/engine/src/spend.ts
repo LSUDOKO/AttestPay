@@ -65,7 +65,26 @@ export type SpendDeps = {
   confirmViaChain?: boolean;
   /** fee-uniqueness jitter source (default random 0-999 atoms; tests pin it) */
   feeJitter?: (baseAtoms: bigint) => bigint;
+  /** Called once whenever a charge reaches 'confirmed', from ANY path: the inline
+   * confirm below and the reconcile sweep both fire it. The Attestcoin integration
+   * hangs off this to enqueue cross-chain verification.
+   *
+   * Must be cheap, synchronous and non-throwing — it is invoked on the payment's
+   * critical path, and bookkeeping must never be able to fail a payment that has
+   * already landed on-chain. Callers are shielded by a try/catch regardless. */
+  onChargeConfirmed?: (chargeId: string, cardId: string) => void;
 };
+
+/** Fires `onChargeConfirmed`, swallowing anything it throws.
+ * A downstream queue being broken is not a reason to fail a confirmed payment. */
+function notifyConfirmed(deps: SpendDeps, chargeId: string, cardId: string): void {
+  if (!deps.onChargeConfirmed) return;
+  try {
+    deps.onChargeConfirmed(chargeId, cardId);
+  } catch {
+    /* bookkeeping hook must never break a confirmed payment */
+  }
+}
 
 const ESTIMATE_RETRIES = 3;
 
@@ -650,6 +669,7 @@ export async function spend(deps: SpendDeps, cardId: string, req: SpendRequest):
       usdcSpentTotal.add(Number(atomsToUsdc(amountAtoms)));
       chargesTotal.add(1);
       emitChargeLog("confirmed", cardId, atomsToUsdc(amountAtoms), req.kind);
+      notifyConfirmed(deps, chargeId, cardId);
       return receiptFromCharge(deps, cardId, "confirmed", confirmation.txHash, req.to ?? FEE_COLLECTOR, amountAtoms, feeAtoms, now, req.memo);
     }
     if (confirmation.status === "failed") {
@@ -802,6 +822,7 @@ export async function reconcilePending(
       if (hit) {
         consumed.add(hit.txHash);
         deps.store.updateCharge(charge.id, { status: "confirmed", tx_hash: hit.txHash });
+        notifyConfirmed(deps, charge.id, charge.card_id);
       } else if (charge.kind === "fiat") {
         // no fee-leg log, but a fiat charge was already approved to the card network:
         // budget stays held and the row is flagged for ops instead of released.

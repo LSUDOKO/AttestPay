@@ -5,7 +5,7 @@
 // Facilitator routes use fetch + WebCrypto ONLY (portability rule: 20-min Workers escape hatch).
 
 import { trace } from "@opentelemetry/api";
-import { reconcilePending } from "@attestpay/engine";
+import { attestcoin, reconcilePending } from "@attestpay/engine";
 import { createApp } from "./app";
 import { envInt, realDeps } from "./deps";
 
@@ -56,6 +56,79 @@ if (deps.fiatSettler) {
   const settleMs = envInt("ATTESTPAY_FIAT_SETTLE_INTERVAL_MS", 60_000);
   if (settleMs > 0) setInterval(runSweep, settleMs);
   setTimeout(runSweep, 5_000); // startup pass: crash recovery for rows orphaned mid-settle
+}
+
+// Attestcoin proof worker: drives anchored payments through attestation, proof
+// generation and on-chain verification on Creditcoin. Off entirely when the
+// integration is not configured.
+const acDeps = deps.attestcoin;
+if (acDeps?.client) {
+  const client = acDeps.client;
+  const acStore = acDeps.store;
+
+  // Check the deployment agrees with this process BEFORE doing any work. An ASC wired
+  // to a different anchor or anchorer rejects every proof, and finding that out once
+  // at boot beats discovering it one stuck payment at a time.
+  void client
+    .checkDeployment()
+    .then(({ ok, problems }) => {
+      if (ok) {
+        console.log(`[attestcoin] deployment check OK · anchorer=${client.anchorerAddress}`);
+      } else {
+        for (const p of problems) console.error(`[attestcoin] DEPLOYMENT MISMATCH: ${p}`);
+        console.error(
+          "[attestcoin] the worker will keep running, but proofs are likely to be rejected until this is fixed",
+        );
+      }
+    })
+    .catch((e) => {
+      console.error(
+        `[attestcoin] deployment check could not run: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    });
+
+  const sweepMs = envInt("ATTESTPAY_ATTESTCOIN_SWEEP_INTERVAL_MS", 60_000);
+  const runAttestcoinSweep = () =>
+    otel.startActiveSpan("attestcoin_sweep", async (span) => {
+      try {
+        const r = await attestcoin.sweepProofs({
+          store: deps.store,
+          attestcoin: acStore,
+          client,
+          batchSize: envInt("ATTESTPAY_ATTESTCOIN_BATCH_SIZE", 10),
+        });
+        span.setAttribute("examined", r.examined);
+        span.setAttribute("advanced", r.advanced);
+        span.setAttribute("verified", r.verified);
+        span.setAttribute("failed", r.failed);
+        span.setAttribute("waiting", r.waiting);
+        if (r.verified || r.failed) {
+          console.log(
+            `[attestcoin] sweep: ${r.verified} verified, ${r.failed} failed, ${r.waiting} waiting (${r.examined} examined)`,
+          );
+        }
+      } catch (e) {
+        // sweepProofs is already internally defensive; this is the last resort so a
+        // throw can never kill the interval and silently stop all verification.
+        span.recordException(e as Error);
+        console.error(
+          `[attestcoin] sweep threw: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      } finally {
+        span.end();
+      }
+    });
+
+  if (sweepMs > 0) {
+    setInterval(runAttestcoinSweep, sweepMs);
+    // Startup pass, delayed so the deployment check and the HTTP listener go first.
+    setTimeout(runAttestcoinSweep, 10_000);
+    console.log(`[attestcoin] proof worker every ${sweepMs}ms`);
+  } else {
+    console.log(
+      "[attestcoin] proof worker DISABLED (ATTESTPAY_ATTESTCOIN_SWEEP_INTERVAL_MS=0): payments will queue but never verify",
+    );
+  }
 }
 
 console.log(`attestpay server listening on :${port}`);

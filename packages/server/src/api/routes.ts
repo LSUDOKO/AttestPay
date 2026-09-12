@@ -43,10 +43,12 @@ import {
   type Wire7702Auth,
 } from "@attestpay/engine";
 import type { AppDeps } from "../deps";
+import { registerTermsInBackground, revokeTermsInBackground } from "../deps";
 import { cardUrl } from "../mcp/server";
 import { appendRedirectParams } from "../oauth/routes";
 import type { OAuthStore } from "../oauth/store";
 import { onboardProofMessage } from "./privy";
+import { attestcoinRoutes } from "../attestcoin/routes";
 import { compileIntent } from "../venice/compiler";
 import { basescanLookup, registryResolvers } from "../venice/resolvers";
 import { errorsTotal, emitCardLog, emitErrorLog } from "@attestpay/engine";
@@ -63,13 +65,18 @@ const normUserId = (s: string): string => (/^0x[0-9a-fA-F]{40}$/.test(s) ? s.toL
 const tokenEqual = (a: string, b: string): boolean =>
   timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());
 
-type AuthCtx = { kind: "admin" } | { kind: "privy"; did: string };
+export type AuthCtx = { kind: "admin" } | { kind: "privy"; did: string };
+
+/** The Hono environment every /api route runs in. Exported so routers mounted under
+ * this one (see attestcoin/routes.ts) share the exact same context type instead of
+ * being cast into place. */
+export type ApiEnv = { Variables: { auth: AuthCtx } };
 
 /** Auth/scoping failure: a 403, distinct from engine refusals (422). */
 class ForbiddenError extends Error {}
 
-export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<{ Variables: { auth: AuthCtx } }> {
-  const app = new Hono<{ Variables: { auth: AuthCtx } }>();
+export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
+  const app = new Hono<ApiEnv>();
   const now = () => Math.floor(Date.now() / 1000);
 
   // Prepared (unsigned) cards awaiting the browser's signature. In-memory, single
@@ -101,7 +108,12 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<{ Variables: {
   // rejects a revoked card's token at request time; this keeps the token ledger honest
   // (no live-looking grant rows survive a dead card). Subtree-wide, mirroring the chain.
   const cascadeRevokeTokens = (cardId: string) => {
-    for (const id of deps.store.subtreeIds(cardId)) oauth.revokeTokensByCardId(id);
+    for (const id of deps.store.subtreeIds(cardId)) {
+      oauth.revokeTokensByCardId(id);
+      // Mirror the revocation into the Creditcoin terms registry, subtree-wide like
+      // the chain itself. Best-effort: the on-Base revocation is what stops spending.
+      revokeTermsInBackground(deps, id);
+    }
   };
   const cascadeRevokeUserTokens = (userId: string) => {
     for (const card of deps.store.listCards(userId)) oauth.revokeTokensByCardId(card.id);
@@ -316,6 +328,8 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<{ Variables: {
       pending.delete(body.prepare_id);
       // eager mint, fire-and-forget: the delegation is a two-rail card from birth
       if (deps.stripe) void deps.stripe.ensureCardForRemitCard(issued.cardId).catch(() => {});
+      // same shape for the cross-chain terms registry: useful, never blocking
+      registerTermsInBackground(deps, issued.cardId);
       return { card_id: issued.cardId, card_url: cardUrl(issued.secret), terms: issued.terms };
     }),
   );
@@ -352,6 +366,7 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<{ Variables: {
         { userId, name: body.name, terms: body.terms },
       );
       if (deps.stripe) void deps.stripe.ensureCardForRemitCard(issued.cardId).catch(() => {});
+      registerTermsInBackground(deps, issued.cardId);
       return { card_id: issued.cardId, card_url: cardUrl(issued.secret), terms: issued.terms };
     }),
   );
@@ -701,6 +716,11 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<{ Variables: {
   );
 
   // ---- tree (the demo view's data) ----
+  // Attestcoin cross-chain verification routes. Mounted here so they inherit this
+  // router's auth middleware, and handed `ownedCard`/`handle` so card scoping and
+  // error mapping stay defined in exactly one place.
+  app.route("/", attestcoinRoutes(deps, ownedCard, handle));
+
   app.get("/tree", (c) =>
     handle(c, async () => {
       const userId = scopedUserId(c, c.req.query("userId"));

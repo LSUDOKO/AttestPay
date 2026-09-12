@@ -38,7 +38,8 @@ import {
   type X402Requirement,
 } from "@attestpay/engine";
 import type { AppDeps } from "../deps";
-import { spendDeps, spendKey } from "../deps";
+import { registerTermsInBackground, revokeTermsInBackground, spendDeps, spendKey } from "../deps";
+import { registerAttestcoinTools } from "./attestcoin-tools";
 import { recentFiatDecision } from "../stripe/decisions";
 
 const SERVER_INFO = { name: "attestpay", version: "0.17.2" };  // Surfaced to clients at initialize. Claude Code's tool search (default-on since mid-2026)
@@ -46,6 +47,7 @@ const SERVER_INFO = { name: "attestpay", version: "0.17.2" };  // Surfaced to cl
   const INSTRUCTIONS = [
     "remit is the agent's spending card: a scoped, revocable spending authority granted by the card owner. The connection itself is the card; it holds no funds of its own and every action is checked against the card's terms (per-payment cap, period budget, expiry, allowlists).",
     "Tools: `card` reports status, terms and remaining budget (check it before the first spend). `pay` sends USDC to a recipient or settles an x402 payment requirement. `paid_fetch` fetches an HTTP resource and pays its 402 challenge automatically. `execute` calls an allowlisted contract within the card's contract terms. `issue_subcard` mints a narrower child card for a sub-agent and returns its connection URL (treat it as a secret). `revoke_subcard` kills a child card and its descendants instantly. On fiat-linked cards, `fiat_pay` buys over Visa rails (simulated, test mode) from the same budget, `card_credentials` reveals the linked test Visa, `shop_products` lists the Stripe product catalog, and `shop_buy` purchases a product from the catalog using the linked Visa.",
+    "When cross-chain verification is enabled this card also exposes `verify_payment` (where a payment has reached in the Attestcoin proof pipeline), `payment_receipt` (the full Base + anchor + Creditcoin receipt for one payment), `credit_score` (the card's verified on-chain history on Creditcoin) and `cross_chain_status` (attestation lag and proof queue health). Verification is automatic and takes a few minutes; an unverified recent payment is normally still waiting, not broken.",
     "A frozen card still answers `card` but refuses spends. Refusals name the violated term; read the message before retrying.",
   ].join("\n\n");
 
@@ -590,6 +592,8 @@ export function buildMcpServer(deps: AppDeps, card: CardRow): McpServer {
           });
           // eager mint, fire-and-forget: the sub-card is a two-rail card from birth
           if (deps.stripe) void deps.stripe.ensureCardForRemitCard(issued.cardId).catch(() => {});
+          // register the sub-card's (narrower) terms cross-chain too, same shape
+          registerTermsInBackground(deps, issued.cardId);
           return { card_id: issued.cardId, card_url: cardUrl(issued.secret), terms: issued.terms };
         }),
     );
@@ -608,10 +612,18 @@ export function buildMcpServer(deps: AppDeps, card: CardRow): McpServer {
       async (args: { card_id: string }) =>
         run("revoke_subcard", card.id, async () => {
           agentRevokeSubcard(sd.store, card.id, args.card_id);
+          // mirror the kill into the Creditcoin terms registry, subtree-wide
+          for (const id of sd.store.subtreeIds(args.card_id)) revokeTermsInBackground(deps, id);
           return { status: "revoked", card_id: args.card_id };
         }),
     );
   }
+
+  // ---- Attestcoin cross-chain tools (only when the integration is configured) ----
+  // Registers verify_payment, payment_receipt, credit_score and cross_chain_status.
+  // A card on a deployment without Attestcoin never sees them, keeping the tool list
+  // an honest description of what this card can actually do.
+  registerAttestcoinTools(server, deps, card, run);
 
   return server;
 }
