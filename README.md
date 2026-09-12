@@ -25,6 +25,9 @@ Every confirmed payment is then **proven cross-chain onto Creditcoin** via the A
 - [Agent Tools](#agent-tools)
 - [Connecting a Card to an Agent](#connecting-a-card-to-an-agent)
 - [Cross-Chain Verification (Attestcoin)](#cross-chain-verification-attestcoin)
+- [Credit Lines, Disputes and the Passport](#credit-lines-disputes-and-the-passport)
+- [Webhooks, Teams and the Audit Log](#webhooks-teams-and-the-audit-log)
+- [SDK](#sdk)
 - [Architecture](#architecture)
 - [Contracts](#contracts-base-mainnet)
 - [Observability (SigNoz)](#observability-signoz)
@@ -102,8 +105,13 @@ MCP tools served over Streamable HTTP. The exact set a card exposes matches its 
 | `payment_receipt` | The full three-chain receipt for one payment, with an explorer link per leg and a plain statement of what the proof establishes |
 | `credit_score` | The card's cross-chain-verified payment history and credit standing on Creditcoin |
 | `cross_chain_status` | Attestcoin protocol health: attestation lag and proof-queue depth |
+| `credit_lines` | Credit lines lenders have opened to this card's funding account: limit, drawn, repaid, available, owed |
+| `draw_credit` | Draw USDC from a line into the funding account; the lender's funding card pays, within its own terms |
+| `repay_credit` | Pay a line down from this card; full repayment (drawn + interest) marks it repaid on Creditcoin |
+| `dispute_payment` | Contest a confirmed payment this card made; proven into `AttestPayLedger` where configured |
+| `credit_passport` | The account's composed on-chain standing with a signed, portable credential |
 
-The last four appear only when cross-chain verification is configured — the tool list is the capability surface, so a card is never offered a tool that can only answer "not configured".
+The cross-chain and credit tools appear only when their contracts are configured — the tool list is the capability surface, so a card is never offered a tool that can only answer "not configured".
 
 Refusals are typed (`over_period_limit`, `merchant_not_allowed`, `price_exceeds_max`, `per_trade_exceeded`, `exceeds_parent_terms`, `target_not_allowed`, `method_not_allowed`, ...) so agents can relay them honestly instead of guessing.
 
@@ -198,6 +206,13 @@ AttestPay's payments execute on Base (the ERC-7710 stack and the 1Shot relayer o
 exist there), so `PaymentAnchor` is deployed on Ethereum Sepolia (`chainKey = 1`) and
 records the Base payment's facts; that anchoring transaction is what gets proven.
 
+The server reads that registry at boot rather than trusting a table. With
+`ATTESTPAY_ATTESTCOIN_CHAIN_KEY=auto` it adopts whichever key matches the source RPC's
+chain, refuses loudly if that chain is not attested, and reports in `/api/attestcoin/health`
+whether the **payment** chain (Base) is attested yet. The day it is, pointing the source
+RPC at Base and deploying the anchors there is the whole migration — and the "not
+proven" caveat above disappears.
+
 ### The flow
 
 ```
@@ -245,8 +260,14 @@ transaction is not a payment.
 | `AttestPayASC.sol` | Creditcoin CC3 | Verifies proofs, decodes payments, maintains credit + terms registry |
 | `ProvenTxDecoder.sol` | library | Recovers receipt logs from Attestcoin-encoded transaction bytes |
 | `IBlockProver.sol` | interfaces | The real precompile ABIs (`0x0FD2` prover, `0x0FD3` chain info) |
+| `FactAnchor.sol` | Ethereum Sepolia | Anchors credit draws/repayments, disputes and card revocations |
+| `ProvenFacts.sol` | abstract | The shared proof-consuming base every fact consumer inherits |
+| `AttestPayCreditLine.sol` | Creditcoin CC3 | EIP-712 dual-signed credit lines; proven draw/repay state machine |
+| `AttestPayLedger.sol` | Creditcoin CC3 | Proven disputes and revocation timestamps |
+| `AttestPayGuarantee.sol` | Creditcoin CC3 | CTC bonds behind a borrower, slashed on a proven default |
+| `CreditPassport.sol` | Creditcoin CC3 | One composed read of everything above, score computed on-chain |
 
-Foundry project in [`contracts/`](contracts/). `forge test` — 42 tests.
+Foundry project in [`contracts/`](contracts/). `forge test` — 111 tests.
 
 **Deployed (testnet):**
 
@@ -331,6 +352,86 @@ Cross-Chain pane says so. See [`.env.example`](.env.example) for the variables a
 deploy steps. At boot the server verifies the deployed ASC agrees with its own
 configuration (same chain key, anchor and anchorer) and reports a mismatch loudly,
 once, rather than letting it surface one stuck payment at a time.
+
+---
+
+## Credit Lines, Disputes and the Passport
+
+Verified history is worth something only if it unlocks capital. This is the half the
+Creditcoin thesis is about, and it is built from the same proving discipline as payments.
+
+**Credit lines.** A lender offers an agent's funding account a limit, a simple interest
+rate and an expiry. Both sign the terms (EIP-712, domain-bound to the deployed
+`AttestPayCreditLine`, per-lender nonce), the server registers them on Creditcoin, and:
+
+- a **draw** (`draw_credit`) pays USDC from the lender's designated *funding card* to the
+  borrower's funding account through the ordinary `spend()` path — the lender's own card
+  terms are the on-chain ceiling on Base, the line's limit is the ceiling on Creditcoin;
+- a **repayment** (`repay_credit`) pays the lender from the agent's card within its terms;
+- each is anchored by `FactAnchor` and **proven** into `AttestPayCreditLine`, which
+  advances `Open → Active → Repaid` (or `Defaulted` past expiry with a balance) from the
+  proven bytes. A late repayment still clears a default; the default stays on the record.
+
+Modelled on the Attestcoin protocol's `ASCLoanManager` example with two changes: the
+example's `abi.encodePacked` terms hash has no domain, so one signature is valid on every
+deployment; and its `onlyOwner` registration puts an operator key in the loop. Here
+signatures bind one contract on one chain, and anyone may submit them.
+
+**Guarantees.** Creditcoin is a staking chain, so the same primitive applies to agent
+credit: `AttestPayGuarantee` lets anyone bond CTC behind a borrower; a proven default is
+slashable in the lender's favour (permissionless, mechanical). It is how an agent with no
+history yet can be lent to — the operator puts money where the reputation will be.
+
+**Disputes and revocations.** Payments are irreversible, so the recourse is a record:
+disputes open against one payment, resolve to upheld / rejected / withdrawn, and are proven
+into `AttestPayLedger` at both ends; upheld ones count against the passport. Revocations
+are proven with their timestamp, so any merchant can answer "was this card live when it
+paid me?" with `wasRevokedAt(cardId, paidAt)` instead of taking AttestPay's word for it.
+
+**The passport.** `CreditPassport.passportOf(account)` composes payments, lines, disputes
+and bonds into one struct with a stable ABI and computes the score **on-chain** from a
+published formula, so other Creditcoin dApps can underwrite an agent with one call.
+Off-chain, `GET /passport/:address` is public and returns the same record with an EIP-191
+signed credential any third party can verify offline (`POST /passport/verify`, or the SDK).
+
+---
+
+## Webhooks, Teams and the Audit Log
+
+- **Webhooks.** Every card action, confirmed payment, verified/failed proof or fact,
+  credit-line step, dispute and low-budget alert is an event; deliveries are signed
+  (`X-AttestPay-Signature: t=…,v1=hmac-sha256(t.body)`), retried on a 30s/2m/10m/1h/6h
+  schedule and dead-lettered with a manual retry. `budget.low` fires once per period when a
+  card's remaining budget drops to its threshold (default 20%).
+- **Teams.** A card belongs to one wallet; a team is an access layer over it. Invite by
+  wallet address; `viewer` reads, `member` freezes/disputes/draws/repays, `admin` assigns
+  cards and manages members, `owner` deletes. No role can issue, reveal a card URL, or
+  revoke on-chain — those need the owning wallet's signature.
+- **Audit log.** Who did what to which card, from which lane, exportable as JSON or CSV.
+- **Idempotency.** `pay`, `execute`, `draw_credit` and `repay_credit` all take an
+  `idempotency_key`; the same key returns the same charge.
+
+All of it lives under Settings in the dashboard and under `/api` for the SDK.
+
+---
+
+## SDK
+
+[`packages/sdk`](packages/sdk) — `@attestpay/sdk`, a typed client over the whole API plus
+the two verifiers every integrator needs: `verifyWebhookSignature` (WebCrypto) and
+`verifyPassportCredential` (EIP-191). Typed refusals arrive as `AttestPayError` with the
+server's code.
+
+```ts
+import { AttestPay } from "@attestpay/sdk";
+
+const ap = new AttestPay({ baseUrl: "https://api.example.com", token: PRIVY_ACCESS_TOKEN });
+const { as_borrower } = await ap.credit.list();
+await ap.credit.draw(as_borrower[0].line_id, { card_id, amount: "4.00", idempotency_key: "draw-1" });
+
+const passport = await ap.passport.get("0xAgentFundingAccount");
+const ok = await ap.passport.verify(passport.credential!, { expectedSigner: ANCHORER });
+```
 
 ---
 
@@ -599,9 +700,9 @@ Plug the `card_url` into an agent and it can spend.
 ## Tests
 
 ```bash
-bun run test             # engine + server suites (411 pass, 4 skipped)
+bun run test             # engine + server + sdk suites (496 pass, 4 skipped)
 bun run typecheck        # per-package tsc
-cd contracts && forge test   # Solidity suite (42 tests)
+cd contracts && forge test   # Solidity suite (111 tests)
 ```
 
 Attestcoin-specific suites:
@@ -612,6 +713,10 @@ cd contracts && forge test                        # proofs, impostor anchors, re
 bun run packages/engine/scripts/attestcoin-probe.ts  # live, read-only protocol probe
 bun run test packages/engine/test/attestcoin.test.ts  # proof state machine, grading, config
 bun run test packages/server/test/attestcoin.test.ts  # routes + tools, configured AND not
+bun run test packages/engine/test/attestcoin-credit.test.ts  # EIP-712 terms, facts pipeline, disputes, passport credential
+bun run test packages/server/test/credit.test.ts      # propose/sign/register, draw/repay over MCP, disputes, public passport
+bun run test packages/server/test/events.test.ts      # webhooks, signing, backoff, budget alerts, audit export
+bun run test packages/server/test/teams.test.ts       # roles on the Privy lane
 ```
 
 The server suite runs the whole Attestcoin surface in **both** configurations. The
@@ -656,12 +761,21 @@ which never configures Attestcoin is unchanged, that every route still answers w
 | `ATTESTPAY_PAYMENT_ANCHOR_ADDRESS` | attestcoin | `PaymentAnchor` on Ethereum Sepolia; one of three values required to enable cross-chain verification |
 | `ATTESTPAY_ASC_ADDRESS` | attestcoin | `AttestPayASC` on Creditcoin CC3 testnet |
 | `ATTESTPAY_ATTESTCOIN_PRIVATE_KEY` | attestcoin | signer for both legs (needs Sepolia ETH + tCTC); must match the ASC's `trustedAnchorer` |
-| `ATTESTPAY_ATTESTCOIN_CHAIN_KEY` | no | Attestcoin source-chain key, **not** an EVM chain id (default 1 = Ethereum Sepolia; 3 = mainnet) |
+| `ATTESTPAY_ATTESTCOIN_CHAIN_KEY` | no | Attestcoin source-chain key, **not** an EVM chain id (default 1 = Ethereum Sepolia; 3 = mainnet; `auto` selects from the live registry by the source RPC's chain) |
 | `ATTESTPAY_SEPOLIA_RPC` | no | source-chain RPC where `PaymentAnchor` lives |
 | `ATTESTPAY_CREDITCOIN_HTTP_RPC` | no | Creditcoin CC3 RPC (HTTP, not WebSocket: the USC SDK needs a `JsonRpcApiProvider`) |
 | `ATTESTPAY_PROVER_API_URL` | no | Attestcoin proof generator API |
 | `ATTESTPAY_ATTESTCOIN_SWEEP_INTERVAL_MS` | no | proof worker tick (default 60000; 0 stops it, so payments queue but never verify) |
 | `ATTESTPAY_ATTESTCOIN_BATCH_SIZE` | no | rows advanced per tick (default 10) |
+| `ATTESTPAY_FACT_ANCHOR_ADDRESS` | credit/disputes | `FactAnchor` on the source chain; shared by credit lines, disputes and proven revocations |
+| `ATTESTPAY_CREDIT_LINE_ADDRESS` | credit | `AttestPayCreditLine` on Creditcoin; enables credit lines and the credit MCP tools |
+| `ATTESTPAY_LEDGER_ADDRESS` | disputes | `AttestPayLedger` on Creditcoin; enables proven disputes and revocations |
+| `ATTESTPAY_GUARANTEE_ADDRESS` | no | `AttestPayGuarantee` on Creditcoin; bond reads, operator bonding, slashing |
+| `ATTESTPAY_PASSPORT_ADDRESS` | no | `CreditPassport` on Creditcoin; the composed passport + on-chain score and signed credential |
+| `ATTESTPAY_PAYMENT_CHAIN_ID` | no | the chain USDC settles on (default 8453); recorded in anchors and compared against the registry |
+| `ATTESTPAY_WEBHOOK_INTERVAL_MS` | no | webhook delivery sweep (default 15000; 0 disables delivery) |
+| `ATTESTPAY_WEBHOOK_ALLOW_LOCAL` | no | `1` allows http:// and private-network webhook URLs (dev only) |
+| `ATTESTPAY_PASSPORT_RATE_LIMIT` | no | per-IP ceiling on the public passport routes per minute (default 60) |
 | `ATTESTPAY_ATTESTCOIN_ENABLED` | no | set to `0` to force the integration off even when fully configured |
 | `NEXT_PUBLIC_PRIVY_APP_ID` / `NEXT_PUBLIC_PRIVY_CLIENT_ID` | dashboard | Privy app credentials (public identifiers, not secrets) |
 | `NEXT_PUBLIC_ATTESTPAY_API` | dashboard | server API base, e.g. `http://localhost:4070/api` |

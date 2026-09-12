@@ -26,6 +26,7 @@ on the trust model states plainly what the integration does **not** prove.
 13. [Deployment](#13-deployment)
 14. [Verifying the protocol facts yourself](#14-verifying-the-protocol-facts-yourself)
 15. [Known limitations](#15-known-limitations)
+16. [Credit lines, disputes, guarantees and the passport](#16-credit-lines-disputes-guarantees-and-the-passport)
 
 ---
 
@@ -814,3 +815,112 @@ which would put a false statement on a public chain, in a project whose case res
 honest records — the source transaction is a real transaction of the anchorer's own on
 Sepolia. Every leg of the proof pipeline is exercised for real; only the amount is
 notional, and it is labelled as such in the record itself.
+
+## 16. Credit lines, disputes, guarantees and the passport
+
+Everything above proves one kind of fact: a payment. This section covers the second
+generation of contracts, which prove the facts a payment history is incomplete
+without, and which turn the history into something an agent can borrow against. The
+proving discipline is identical and is deliberately not restated: `ProvenFacts` is the
+`verifyPayment` core factored out (precompile verify, precompile-derived `txIndex`
+replay key, facts decoded only from proven bytes, trusted-anchorer gate), and every
+consumer below inherits it.
+
+### The contracts
+
+| Contract | Chain | What it proves / does |
+|---|---|---|
+| `FactAnchor` | Ethereum Sepolia | Anchors `CreditDrawn`, `CreditRepaid`, `DisputeOpened`, `DisputeResolved`, `CardRevoked`; one replay guard per kind |
+| `ProvenFacts` | abstract | The shared consumer core; `_understands(topic0)` + `_consumeLog(log)` per subclass |
+| `AttestPayCreditLine` | Creditcoin CC3 | EIP-712 dual-signed lines; `Open → Active → Repaid` / `Defaulted` / `Closed` from proven draws and repayments; `BorrowerRecord` per account |
+| `AttestPayLedger` | Creditcoin CC3 | Disputes (`Open → Upheld / Rejected / Withdrawn`) and `cardRevokedAt`; `wasRevokedAt(cardId, at)` |
+| `AttestPayGuarantee` | Creditcoin CC3 | Native CTC bonds behind a borrower; `slash(lineId)` on a `Defaulted` line, 1 CTC per 1 USDC outstanding, 7-day unbond delay |
+| `CreditPassport` | Creditcoin CC3 | `passportOf(account)`: the four records composed, score and grade computed on-chain; `formula()` states the arithmetic |
+
+### What changed from the protocol's `ASCLoanManager` example
+
+The loan flow in `attestcoin-protocol-examples` is the blueprint, with two changes that
+matter once the contract is a product rather than a tutorial:
+
+1. **Domain-bound signatures.** The example hashes the terms with `abi.encodePacked`
+   and no domain, contract address or nonce, so one signature is valid on every
+   deployment of the manager and can be re-registered at will. `AttestPayCreditLine`
+   signs under an EIP-712 domain (chain id + contract address) with a per-lender nonce;
+   `test_signatureIsBoundToDeployment` pins it.
+2. **Permissionless registration.** The example's `registerLoan` is `onlyOwner`. Both
+   parties' signatures are required anyway, so the submitter does not matter; removing
+   the owner removes a key whose compromise could make lines appear.
+
+Draws and repayments are ordinary Base USDC transfers through `spend()`: a draw pays from
+the lender's designated funding card to the borrower's funding account (so the lender's
+own card terms are the Base-side ceiling), a repayment pays the lender from the agent's
+card. The charge is booked against the line, and on confirmation the fact is queued for
+the same anchor → attest → prove → submit worker that handles payments (`sweepFacts`).
+
+### The trust model, unchanged
+
+The proof establishes that `FactAnchor` recorded a draw / repayment / dispute /
+revocation with exactly these values in an attested block. It does not establish that
+the underlying Base transfer happened: the anchorer asserts it, `sourceTxHash` lets
+anyone check it, and the consumers credit only the `trustedAnchorer` they were deployed
+with. Same hop, same honesty, same reason.
+
+### Chain key discovery
+
+`AttestcoinClient.resolveChainKey()` reads `get_supported_chains()` from the ChainInfo
+precompile at boot. With `ATTESTPAY_ATTESTCOIN_CHAIN_KEY=auto` the key whose chain id
+matches the source RPC is adopted and an unattested source chain disables the worker
+loudly; with a numeric key, disagreements are logged as warnings. Health reports
+`supportedChains` and `paymentChainAttested` — the honest answer to "is Base attested
+yet?", straight from the registry.
+
+### Deployed addresses (CC3 testnet, 2026-09-12)
+
+| Chain | Contract | Address |
+|---|---|---|
+| Ethereum Sepolia (11155111) | `FactAnchor` | [`0xE984375956027C4989C6A806eBb2A1223607aefe`](https://sepolia.etherscan.io/address/0xE984375956027C4989C6A806eBb2A1223607aefe) |
+| Creditcoin CC3 (102031) | `AttestPayCreditLine` | [`0xe984375956027c4989c6a806ebb2a1223607aefe`](https://creditcoin-testnet.blockscout.com/address/0xe984375956027c4989c6a806ebb2a1223607aefe) |
+| Creditcoin CC3 (102031) | `AttestPayLedger` | [`0x56733223c688cce7fc65826b692b3f8521e4ab3e`](https://creditcoin-testnet.blockscout.com/address/0x56733223c688cce7fc65826b692b3f8521e4ab3e) |
+| Creditcoin CC3 (102031) | `AttestPayGuarantee` | [`0x3543bfcb460ab40acd3ba21c486eea285ce07f1b`](https://creditcoin-testnet.blockscout.com/address/0x3543bfcb460ab40acd3ba21c486eea285ce07f1b) |
+| Creditcoin CC3 (102031) | `CreditPassport` | [`0xfd1dc807ad1714c4c80a6c2145be200f61265b57`](https://creditcoin-testnet.blockscout.com/address/0xfd1dc807ad1714c4c80a6c2145be200f61265b57) |
+
+`FactAnchor` on Sepolia and `AttestPayCreditLine` on CC3 share an address for the same
+reason `PaymentAnchor` and `AttestPayASC` do: one deployer, the same nonce on each chain.
+
+Immutables read back from the live chain:
+
+```
+AttestPayCreditLine.trustedAnchorer  0x66b6082Eb6c7a9457F25479fa35b6061F2c4EC5a
+AttestPayCreditLine.factAnchor       0xE984375956027C4989C6A806eBb2A1223607aefe
+AttestPayCreditLine.sourceChainKey   1
+AttestPayCreditLine.blockProver      0x0000000000000000000000000000000000000FD2
+AttestPayLedger.trustedAnchorer      0x66b6082Eb6c7a9457F25479fa35b6061F2c4EC5a
+AttestPayGuarantee.creditLine        0xE984375956027C4989C6A806eBb2A1223607aefe
+CreditPassport.asc                   0x881c55745372DfCB7dEC9B13F499b167164e2121
+CreditPassport.scoreOf(anchorer)     10, "F"   # the anchorer's own verified payments from §"Live end-to-end run"
+```
+
+### Deploying
+
+`DeployFactAnchor` works through `forge script` on Sepolia. `DeployCredit` is the
+reference for the constructor wiring but, like `DeployASC`, cannot run against the CC3
+RPC (`prevrandao` not set — `--skip-simulation` does not help, the failure is in the
+script's local EVM). The four CC3 deployments are `cast send --create`, in this order,
+each feeding the next:
+
+```bash
+deploy() { local name=$1 sig=$2; shift 2
+  local bin=$(jq -r '.bytecode.object' out/$name.sol/$name.json)
+  local args=$(cast abi-encode "$sig" "$@")
+  cast send --private-key "$PRIVATE_KEY" --rpc-url "$CC3" --json --create "${bin}${args#0x}" | jq -r .contractAddress; }
+CL=$(deploy AttestPayCreditLine "c(uint64,address,address,address)" 1 $FACT_ANCHOR $ANCHORER 0x0000000000000000000000000000000000000000)
+LG=$(deploy AttestPayLedger     "c(uint64,address,address,address)" 1 $FACT_ANCHOR $ANCHORER 0x0000000000000000000000000000000000000000)
+GU=$(deploy AttestPayGuarantee  "c(address)" $CL)
+PP=$(deploy CreditPassport      "c(address,address,address,address)" $ASC $CL $LG $GU)
+```
+
+Then set `ATTESTPAY_FACT_ANCHOR_ADDRESS`, `ATTESTPAY_CREDIT_LINE_ADDRESS`,
+`ATTESTPAY_LEDGER_ADDRESS`, `ATTESTPAY_GUARANTEE_ADDRESS`, `ATTESTPAY_PASSPORT_ADDRESS`.
+`checkDeployment()` at boot verifies the consumers' `factAnchor`, `trustedAnchorer` and
+`sourceChainKey` against the process configuration, the same way it does for the ASC.
+

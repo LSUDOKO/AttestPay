@@ -38,6 +38,17 @@ services:
         value: https://rpc.cc3-testnet.creditcoin.network
       - key: ATTESTPAY_PROVER_API_URL
         value: https://prover.cc3-testnet.creditcoin.network
+      # Credit lines, disputes, guarantees, passport: deployed 2026-09-12 (§16 of the doc)
+      - key: ATTESTPAY_FACT_ANCHOR_ADDRESS
+        value: "0xE984375956027C4989C6A806eBb2A1223607aefe"
+      - key: ATTESTPAY_CREDIT_LINE_ADDRESS
+        value: "0xe984375956027c4989c6a806ebb2a1223607aefe"
+      - key: ATTESTPAY_LEDGER_ADDRESS
+        value: "0x56733223c688cce7fc65826b692b3f8521e4ab3e"
+      - key: ATTESTPAY_GUARANTEE_ADDRESS
+        value: "0x3543bfcb460ab40acd3ba21c486eea285ce07f1b"
+      - key: ATTESTPAY_PASSPORT_ADDRESS
+        value: "0xfd1dc807ad1714c4c80a6c2145be200f61265b57"
 
 # NOTE ON PERSISTENCE
 # The free plan has no persistent disk, so /data resets on every deploy and on the
