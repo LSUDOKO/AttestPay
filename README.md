@@ -248,6 +248,20 @@ transaction is not a payment.
 
 Foundry project in [`contracts/`](contracts/). `forge test` — 42 tests.
 
+**Deployed (testnet):**
+
+| Chain | Contract | Address |
+|---|---|---|
+| Ethereum Sepolia | `PaymentAnchor` | [`0x881c…2121`](https://sepolia.etherscan.io/address/0x881c55745372DfCB7dEC9B13F499b167164e2121) |
+| Creditcoin CC3 | `AttestPayASC` | [`0x881c…2121`](https://creditcoin-testnet.blockscout.com/address/0x881c55745372DfCB7dEC9B13F499b167164e2121) |
+
+The same address on both chains is one deployer at nonce 0 on each, not a copy-paste
+slip. `AttestPayASC` binds `blockProver` to the canonical precompile `0x…0FD2`, and its
+`trustedAnchorer` is the only address whose anchors it will credit. See
+[`docs/attestcoin-integration.md`](docs/attestcoin-integration.md#deployed-addresses-cc3-testnet-2026-09-12)
+for the immutables read back off-chain and for the CC3 deployment caveat (`forge script`
+cannot simulate against the Creditcoin RPC).
+
 ### Agent credit history
 
 Each verified payment updates an `AgentCredit` record against the card tree's **root

@@ -1,14 +1,27 @@
-# AttestPay × Attestcoin — BUIDL CTC 2026 Fall
-
-Deck source. Ten slides. Render to PDF with any Markdown-to-slides tool, e.g.:
-
-```bash
-npx @marp-team/marp-cli@latest docs/hackathon-deck.md -o docs/hackathon-deck.pdf
-```
-
-Speaker notes sit under each slide as `Notes:` and are not rendered on the slide.
-
 ---
+marp: true
+theme: default
+paginate: true
+size: 16:9
+style: |
+  section { font-size: 21px; padding: 44px 60px; justify-content: flex-start; }
+  h2 { font-size: 30px; margin: 0 0 .5em; }
+  h3 { font-size: 24px; }
+  pre { font-size: 0.82em; line-height: 1.35; }
+  code { font-size: 0.92em; }
+  table { font-size: 0.95em; }
+  li { margin-bottom: .35em; }
+  p { margin: .55em 0; }
+---
+
+<!--
+Deck source. Ten slides. Render to PDF:
+
+    npx @marp-team/marp-cli@latest docs/hackathon-deck.md -o docs/hackathon-deck.pdf --pdf-notes
+
+Speaker notes are HTML comments, so they stay off the slide and ride along as PDF
+notes annotations with --pdf-notes.
+-->
 
 ## 1 — AttestPay
 
@@ -21,9 +34,11 @@ every payment proven cross-chain onto Creditcoin.
 
 **Track:** AI (primary) · DeFi (secondary)
 
+<!--
 Notes: One sentence to open. "We give AI agents a spending card the owner controls, and
 we make every payment that card makes into public, checkable credit history on
 Creditcoin." Don't explain the mechanism yet.
+-->
 
 ---
 
@@ -40,8 +55,10 @@ AttestPay already solved that part: a card is a scoped, revocable delegation.
 answer is "trust our database". An agent cannot carry its track record anywhere, and
 nobody else can verify it.
 
+<!--
 Notes: Land the second half. The payment problem is solved; the *credibility* problem is
 not, and credibility is what Creditcoin exists for.
+-->
 
 ---
 
@@ -63,8 +80,10 @@ AgentCredit on Creditcoin — readable by any dApp, trusting nobody
 
 An agent's payment history becomes portable, public, and checkable.
 
+<!--
 Notes: Emphasise "verified on-chain, in the same transaction that records the result".
 No attestor signature is trusted; no bridge custodies anything.
+-->
 
 ---
 
@@ -84,8 +103,10 @@ pipeline. A background worker drives persisted state:
 **`pay` never waits.** Attestation takes ~8 minutes; an agent's payment returns in
 seconds.
 
+<!--
 Notes: If asked why a worker and not inline: the 8 minutes is measured, not guessed —
 show the probe on slide 9.
+-->
 
 ---
 
@@ -99,19 +120,20 @@ cast call 0x…0fd3 "get_supported_chains()" --rpc-url <creditcoin>
   chainKey 1 → Ethereum Sepolia
 ```
 
-**Base is not attested.** A Base transaction cannot be proven into Creditcoin at all.
-
-So `PaymentAnchor` lives on Sepolia and records the Base payment's facts; that
+**Base is not attested** — a Base transaction cannot be proven into Creditcoin at all.
+So `PaymentAnchor` lives on Sepolia and records the Base payment's facts; *that*
 transaction is what gets proven.
 
-**What the proof establishes:** this anchor record, with exactly these values, was in
-an attested block. Trustlessly.
-**What it does not:** that the Base payment happened — our server writes the anchor.
-Every anchor records the Base tx hash and the anchorer's address, so the claim is
+**Proven, trustlessly:** this anchor record, with exactly these values, was in an
+attested block.
+**Not proven:** that the Base payment happened — our server writes the anchor. Every
+anchor records the Base tx hash and the anchorer's address, so the claim is
 attributable and independently checkable.
 
+<!--
 Notes: Say this part out loud rather than skipping it. Judges notice a team that knows
 the boundary of its own guarantee — and it is the slide most likely to earn a question.
+-->
 
 ---
 
@@ -136,8 +158,10 @@ verifyPayment(height, txBytes, merkleProof, continuityProof)
 The proof **and nothing else.** Every field is decoded out of the proven transaction
 bytes, so the facts *are* the proof.
 
+<!--
 Notes: This is the technical centrepiece. Three tests pin it: impostor anchor, untrusted
 anchorer, reverted source transaction.
+-->
 
 ---
 
@@ -151,19 +175,20 @@ struct AgentCredit {
 }
 ```
 
-Two honesty decisions, because a credit score invites more trust than data usually
-supports:
+Two honesty decisions, because a credit score invites more trust than the data supports:
 
-- **`termsCheckedPayments` is the denominator, not `totalPayments`.** A card with no
+- **`termsCheckedPayments` is the denominator, not `totalPayments`** — a card with no
   registered terms does **not** score a free 100% compliance rate.
 - **The grade is a published formula**, printed in the tool output: count (≤40) +
   volume (≤30) + history days (≤30), scaled by the within-terms rate. A summary of
-  public facts — not a risk model, and labelled as such.
+  public facts, not a risk model — and labelled as such.
 
 Readable by any Creditcoin contract: `getAgentCredit(payer)`.
 
+<!--
 Notes: A single small first payment grades F. That is deliberate — a grade that
 flattered thin history would be worth less.
+-->
 
 ---
 
@@ -182,8 +207,10 @@ Responses are written for a model that will relay them: ISO timestamps, decimal 
 an explorer link per leg, and the trust model **verbatim** — so an agent telling a human
 "cryptographically verified" can say exactly what that covers.
 
+<!--
 Notes: Demo `payment_receipt` live if time allows. The trust-model paragraph in the
 response is the thing to point at.
+-->
 
 ---
 
@@ -205,9 +232,11 @@ $ bun run packages/engine/scripts/attestcoin-probe.ts
 | TypeScript | **408 tests** — the Attestcoin surface tested with the integration both **on and off** |
 | Docs | Every protocol claim paired with the command that checks it |
 
+<!--
 Notes: The real-fixtures point is worth 15 seconds: we decode an encoding defined by
 someone else's SDK, so testing against our own encoder would prove only
 self-consistency.
+-->
 
 ---
 
@@ -228,5 +257,7 @@ SigNoz instrumentation of the whole proof lifecycle.
 
 `github.com/LSUDOKO/AttestPay` · [docs/attestcoin-integration.md](attestcoin-integration.md)
 
+<!--
 Notes: Close on (3). It reframes the work: this is not reporting on payments, it is the
 groundwork for agents that earn financial trust.
+-->

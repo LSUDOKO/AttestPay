@@ -2,6 +2,25 @@
 
 All notable changes to AttestPay are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Contracts deployed to testnet.** `PaymentAnchor` on Ethereum Sepolia and
+  `AttestPayASC` on Creditcoin CC3, both at
+  `0x881c55745372DfCB7dEC9B13F499b167164e2121` (one deployer at nonce 0 on each chain).
+  The ASC's immutables are read back off-chain in
+  [`docs/attestcoin-integration.md`](docs/attestcoin-integration.md); `blockProver` is
+  bound to the canonical precompile and `trustedAnchorer` to the anchoring key.
+- **Deck rendered** to `docs/hackathon-deck.pdf` — ten slides, speaker notes carried as
+  PDF note annotations rather than printed on the slides.
+
+### Fixed
+
+- `forge script` cannot deploy to Creditcoin CC3: the node omits `prevrandao` from its
+  block headers, so forge's local simulation rejects the block before broadcasting. The
+  deployment doc now records the `cast send --create` path that works.
+
 ## [0.18.0] - 2026-09-12
 
 The project is renamed **AttestPay**, and every confirmed payment is now proven

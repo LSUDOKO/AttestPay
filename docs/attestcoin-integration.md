@@ -764,3 +764,53 @@ cast send --private-key "$PRIVATE_KEY" --rpc-url "$ATTESTPAY_CREDITCOIN_HTTP_RPC
 ```
 
 `DeployAnchor` on Sepolia works normally through `forge script`.
+
+## Live end-to-end run (2026-09-12)
+
+The full pipeline, executed against the deployed contracts on the real networks. Every
+hash below resolves on a public explorer.
+
+| Step | Result |
+|---|---|
+| Source transaction (Sepolia) | [`0x2f1b0122…4ccb0`](https://sepolia.etherscan.io/tx/0x2f1b0122e4fd989ea30f931493db7385bcd5cf1d4a68c165abd3bf4b4494ccb0) |
+| Anchor written (Sepolia) | [`0xb0cc21b3…05454`](https://sepolia.etherscan.io/tx/0xb0cc21b30cfa7cfc42d1d107f21719431ae8748a2744673de653ee2d9d705454) @ height 11,688,737 |
+| Attestation wait | **464 s (7.7 min)** — measured, from anchor to the attestors covering that height |
+| Proof | txIndex 71 · 2,240 B txBytes · 7 Merkle siblings · 4 continuity roots |
+| Verified (Creditcoin) | [`0x0aa8570e…79432`](https://creditcoin-testnet.blockscout.com/tx/0x0aa8570e967644991aaebfb97fad1866214e589620cf44c522817d9817e79432) · recorded 1 payment |
+
+`AgentCredit` read back off Creditcoin afterwards:
+
+```json
+{ "totalPayments": 1, "totalVolume": 2000000,
+  "firstPaymentAt": 1789213962, "lastPaymentAt": 1789213962,
+  "withinTermsPayments": 0, "termsCheckedPayments": 0 }
+```
+
+`termsCheckedPayments: 0` is the designed behaviour, not a gap: no terms were registered
+for this card, so the payment is neither credited nor penalised on compliance. The card
+does not receive a free 100%.
+
+### Replay protection, checked on the live contract
+
+The same proof was regenerated and resubmitted under a different charge id:
+
+```
+tx 0xb121088c779807edaba08c1785f06383dbb1aeee21ce2ecc6f033a00bcdde2bd
+recorded 0 payment(s)
+AgentCredit.totalPayments after replay: 1
+```
+
+The event key `keccak256(chainKey, height, txIndex, logIndex)` was already proven, so the
+second submission recorded nothing and minted no credit. The transaction still succeeds —
+it is a no-op, not a revert, so a worker retrying after an ambiguous receipt converges
+rather than failing.
+
+### A note on this particular run
+
+The anchored amount is synthetic and the memo says so on-chain
+(`E2E PIPELINE TEST - synthetic amount, not a real payment`). The anchoring key holds no
+funds on Base, so rather than anchor a claim about someone else's Base transaction —
+which would put a false statement on a public chain, in a project whose case rests on
+honest records — the source transaction is a real transaction of the anchorer's own on
+Sepolia. Every leg of the proof pipeline is exercised for real; only the amount is
+notional, and it is labelled as such in the record itself.
