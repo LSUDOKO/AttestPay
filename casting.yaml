@@ -1,0 +1,99 @@
+# SigNoz Foundry casting.yaml
+# Deploy local SigNoz with Docker Compose alongside AttestPay.
+# Run: foundryctl cast -f casting.yaml
+#
+# After deployment, AttestPay's OTel exporter sends to http://localhost:4318
+# (set OTEL_EXPORTER_OTLP_ENDPOINT or let it default).
+# The SigNoz UI is at http://localhost:3301
+
+mode: docker
+flavor: compose
+
+# SigNoz self-hosted composition for observability of the AttestPay
+# Agentic Finance platform. Includes the OTel Collector, ClickHouse,
+# Query Service (backend), Frontend, and the MCP server for AI-agent
+# observability workflows.
+#
+# Minimum resources (single host):
+#   - 4 GB RAM
+#   - 2 CPU cores
+#   - 20 GB disk for ClickHouse data
+
+ingress:
+  # SigNoz UI (dashboards, alerts, traces, logs, metrics)
+  - name: signoz-frontend
+    port: 3301
+    protocol: http
+
+  # OTLP HTTP receiver for AttestPay telemetry
+  - name: otlp-http
+    port: 4318
+    protocol: http
+    description: >
+      OTLP HTTP endpoint for traces, metrics, and logs.
+      AttestPay's NodeSDK exports to this by default.
+
+  # OTLP gRPC receiver (alternative transport)
+  - name: otlp-grpc
+    port: 4317
+    protocol: grpc
+
+  # SigNoz MCP server (AI agent observability tools)
+  - name: signoz-mcp
+    port: 8000
+    protocol: http
+    description: >
+      SigNoz MCP server exposing signoz_* tools.
+      Configure your agent client to point at this URL.
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.12
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    environment:
+      CLICKHOUSE_DB: signoz
+      CLICKHOUSE_USER: admin
+      CLICKHOUSE_PASSWORD: ${SIGNOZ_CLICKHOUSE_PASSWORD:-attestpay_dev}
+
+  otel-collector:
+    image: signoz/signoz-otel-collector:0.119.3
+    depends_on: [clickhouse]
+    environment:
+      OTEL_RESOURCE_ATTRIBUTES: service.name=glasspay-collector
+      SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_USER: admin
+      SIGNOZ_OTEL_COLLECTOR_CLICKHOUSE_PASSWORD: ${SIGNOZ_CLICKHOUSE_PASSWORD:-attestpay_dev}
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+
+  query-service:
+    image: signoz/query-service:0.81.0
+    depends_on: [clickhouse, otel-collector]
+    environment:
+      SIGNOZ_CLICKHOUSE_PASSWORD: ${SIGNOZ_CLICKHOUSE_PASSWORD:-attestpay_dev}
+      STORAGE: clickhouse
+      GODEBUG: netdns=go
+
+  frontend:
+    image: signoz/frontend:0.81.0
+    depends_on: [query-service]
+    ports:
+      - "3301:3301"
+    environment:
+      SIGNOZ_API_URL: http://query-service:8080
+
+  signoz-mcp-server:
+    image: signoz/mcp-server:latest
+    depends_on: [query-service]
+    ports:
+      - "8000:8000"
+    environment:
+      SIGNOZ_API_URL: http://query-service:8080
+      SIGNOZ_MCP_AUTH_TOKEN: ${SIGNOZ_MCP_AUTH_TOKEN:-attestpay_mcp_dev}
+    # The MCP server exposes signoz_* tools for querying traces,
+    # logs, metrics, creating dashboards, and setting alerts —
+    # directly usable by AI agents debugging AttestPay.
+
+volumes:
+  clickhouse-data:

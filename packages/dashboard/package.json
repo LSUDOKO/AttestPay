@@ -1,0 +1,27 @@
+{
+  "name": "@attestpay/dashboard",
+  "version": "0.17.2",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 4071",
+    "build": "next build",
+    "start": "next start -p 4071",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@metamask/delegation-core": "^2.2.1",
+    "@metamask/smart-accounts-kit": "1.6.0",
+    "@privy-io/react-auth": "^3",
+    "motion": "^12.40.0",
+    "next": "^16.2.7",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "viem": "2.52.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "@attestpay/server",
+  "version": "0.17.2",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --preload ./src/otel.ts --watch src/index.ts",
+    "start": "bun run --preload ./src/otel.ts src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@attestpay/engine": "workspace:*",
+    "@hono/mcp": "^0.3.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/api-logs": "^0.221.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.57.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.57.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.57.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.57.0",
+    "@opentelemetry/resources": "^2.10.0",
+    "@opentelemetry/sdk-logs": "^0.221.0",
+    "@opentelemetry/sdk-node": "^0.57.0",
+    "@x402/core": "^2.14.0",
+    "hono": "^4.11.3",
+    "jose": "^6.2.3",
+    "viem": "2.52.2",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
