@@ -654,10 +654,29 @@ curl -s https://prover.cc3-testnet.creditcoin.network/api/v1/proof-by-tx/1/<txHa
 #    "merkleProof","txBytes","txHash","txIndex"]
 ```
 
+### The live probe
+
+One command checks the whole integration against the real network, read-only, spending
+no gas and needing no funded key:
+
+```bash
+bun run packages/engine/scripts/attestcoin-probe.ts
+```
+
+It verifies, in dependency order: the Creditcoin RPC is really chain 102031; the
+ChainInfo precompile answers and the configured `chainKey` is attested; attestation is
+*live* (lag bounded, not merely present); the prover API agrees with the precompile;
+a real proof can be generated for a real attested transaction; the proof has the exact
+structure `AttestPayASC` expects; and — once `ATTESTPAY_ASC_ADDRESS` is set — that the
+deployed ASC's wiring matches the local configuration.
+
+Sample output is in the README. Run it before spending tCTC on a deploy, and again
+whenever something stops verifying.
+
 ### Tests
 
 ```bash
-cd contracts && forge test            # 35 tests: proofs, impostors, replay, terms
+cd contracts && forge test            # 42 tests: proofs, impostors, replay, terms
 bun test packages/engine/test/attestcoin.test.ts    # 44: state machine, grading, config
 bun test packages/server/test/attestcoin.test.ts    # 21: routes + tools, on AND off
 ```
@@ -666,6 +685,16 @@ The server suite runs the whole surface in **both** configurations. The disabled
 is the one that protects existing deployments: it asserts that a server which never
 configures Attestcoin is unchanged, that every route still answers with
 `configured: false`, and that the four tools are absent.
+
+`contracts/test/ProvenTxDecoder.t.sol` deserves a note. `ProvenTxDecoder` reads an
+encoding defined by someone else's SDK, so a test feeding it blobs built by this repo's
+own encoder would prove only self-consistency — it would pass just as happily if the
+encoding had been misread. Those tests therefore decode the **exact `txBytes` the live
+prover API returned** for real Sepolia transactions (captured in
+`RealProofFixtures.sol`, with the originating tx hash and block recorded), for both a
+type-2 and a type-0 transaction. One test also asserts that the synthetic encoder used
+by the other suites produces the same envelope shape as the real prover, so the rest of
+the suite cannot drift onto a format that does not exist.
 
 ---
 

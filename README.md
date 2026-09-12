@@ -246,7 +246,7 @@ transaction is not a payment.
 | `ProvenTxDecoder.sol` | library | Recovers receipt logs from Attestcoin-encoded transaction bytes |
 | `IBlockProver.sol` | interfaces | The real precompile ABIs (`0x0FD2` prover, `0x0FD3` chain info) |
 
-Foundry project in [`contracts/`](contracts/). `forge test` — 35 tests.
+Foundry project in [`contracts/`](contracts/). `forge test` — 42 tests.
 
 ### Agent credit history
 
@@ -275,6 +275,38 @@ Spans `attestcoin.anchor`, `.proof_generation`, `.proof_submission`, `.register_
 `.proof_generation_seconds`, `.proof_submission_seconds`, `.end_to_end_seconds` and
 `.attestation_lag_blocks`, plus counters for anchors written, proofs generated,
 verified, and failed (tagged by stage).
+
+### Verify it against the live protocol
+
+One read-only command, no gas, no funded key:
+
+```bash
+bun run packages/engine/scripts/attestcoin-probe.ts
+```
+
+```
+1. Creditcoin RPC
+  ✓ chain 102031 (Creditcoin CC3 Testnet), head 5,474,464
+2. ChainInfo precompile (0x…0fD3)
+  ✓ 2 attested source chain(s):
+      chainKey 3 → chainId 1 (Ethereum)
+      chainKey 1 → chainId 11155111 (Sepolia ethereum)
+  ✓ Base is NOT an attested source chain → anchoring on an attested chain is required
+3. Attestation liveness
+  ✓ latest attested height 11,688,220   source head 11,688,259
+  ✓ lag 39 blocks (~8 min): attestation is live and current
+4. Prover API
+  ✓ prover reports attested height 11,688,220 · agrees with the precompile (drift 0)
+5. Proof generation for a real attested transaction
+  ✓ proof generated
+6. Proof structure matches what AttestPayASC expects
+  ✓ txBytes: 2688 bytes · 7 Merkle siblings · 1 continuity root
+  ✓ txBytes envelope starts with a valid tx type tag (2)
+```
+
+The Solidity decoder is tested against that same real prover output rather than against
+blobs this repo encodes itself — see
+[docs/attestcoin-integration.md §14](docs/attestcoin-integration.md#14-verifying-the-protocol-facts-yourself).
 
 ### Setup
 
@@ -555,13 +587,15 @@ Plug the `card_url` into an agent and it can spend.
 ```bash
 bun test                 # engine + server suites (408 tests)
 bun run typecheck        # per-package tsc
-cd contracts && forge test   # Solidity suite (35 tests)
+cd contracts && forge test   # Solidity suite (42 tests)
 ```
 
 Attestcoin-specific suites:
 
 ```bash
-cd contracts && forge test                        # proofs, impostor anchors, replay, terms
+cd contracts && forge test                        # proofs, impostor anchors, replay, terms,
+                                                  # and the decoder against REAL prover output
+bun run packages/engine/scripts/attestcoin-probe.ts  # live, read-only protocol probe
 bun test packages/engine/test/attestcoin.test.ts  # proof state machine, grading, config
 bun test packages/server/test/attestcoin.test.ts  # routes + tools, configured AND not
 ```
