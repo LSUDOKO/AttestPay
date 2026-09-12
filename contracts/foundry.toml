@@ -1,0 +1,20 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+test = "test"
+script = "script"
+solc = "0.8.24"
+optimizer = true
+optimizer_runs = 200
+# Required, not optional: decoding an Attestcoin receipt log into its 9 fields
+# exhausts the legacy codegen's addressable stack slots ("Stack too deep"). The IR
+# pipeline is the documented remedy and compiles these contracts in a few seconds.
+via_ir = true
+
+[rpc_endpoints]
+sepolia = "${ATTESTPAY_SEPOLIA_RPC}"
+creditcoin = "${ATTESTPAY_CREDITCOIN_HTTP_RPC}"
+
+[etherscan]
+sepolia = { key = "${ETHERSCAN_API_KEY}", chain = 11155111 }
