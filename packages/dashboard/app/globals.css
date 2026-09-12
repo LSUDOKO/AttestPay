@@ -1431,3 +1431,38 @@ main.narrow .panel { padding: 20px; }
   .docwrap { padding: 26px 16px 80px; }
   .docsec h2 { font-size: 19px; }
 }
+
+/* ---------------------------------------------------------------------------
+   Credit pane, settings, passport
+   --------------------------------------------------------------------------- */
+.crform { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; align-items: end; margin: 8px 0 6px; }
+.crform label { display: grid; gap: 4px; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--label); min-width: 0; }
+.crform input, .crform select { width: 100%; min-width: 0; }
+.crform .span2 { grid-column: span 2; }
+.crline { border: 1px solid var(--hairline); border-radius: 12px; padding: 12px 14px; background: var(--panel); margin: 10px 0; min-width: 0; }
+.crline-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.crline-head .who { font-size: 12.5px; color: var(--body); overflow-wrap: anywhere; }
+.crbar { height: 6px; border-radius: 3px; background: var(--inset); overflow: hidden; margin: 8px 0 4px; }
+.crbar > span { display: block; height: 100%; background: var(--accent); }
+.crbar > span.bad { background: var(--danger); }
+.crfigs { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px 14px; margin: 6px 0 2px; }
+.crfig { display: grid; gap: 2px; }
+.crfig .l { font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--label); }
+.crfig .v { font-size: 15px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums lining-nums; }
+.cractions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+.cractions input { width: 110px; }
+.setsec { border: 1px solid var(--hairline); border-radius: 14px; padding: 16px 18px; background: var(--panel); margin: 0 0 16px; min-width: 0; }
+.setsec h2 { margin: 0 0 4px; font-size: 16px; }
+.setsec .lede { margin: 0 0 10px; font-size: 12.5px; color: var(--label); line-height: 1.55; }
+.setrow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--hairline-soft); flex-wrap: wrap; min-width: 0; }
+.setrow .main { min-width: 0; flex: 1; font-size: 13px; color: var(--ink); overflow-wrap: anywhere; }
+.setrow .sub { font-size: 11.5px; color: var(--label); }
+.setrow .acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.secretbox { margin: 8px 0; padding: 10px 12px; background: var(--float); border: 1px solid var(--hairline); border-left: 3px solid var(--accent); border-radius: 8px; font-size: 12.5px; color: var(--ink); word-break: break-all; }
+.ppgrade { display: inline-grid; place-items: center; width: 64px; height: 64px; border-radius: 16px; font-family: var(--font-display); font-size: 34px; font-weight: 600; background: var(--accent-tint); color: var(--accent-deep); }
+.ppgrade.gD, .ppgrade.gF { background: var(--danger-tint); color: var(--danger); }
+.ppgrade.gC { background: var(--warn-tint); color: var(--warn-ink); }
+.pphead { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+.pphead .num { font-family: var(--font-display); font-size: 28px; }
+.ppjson { font-size: 11px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; background: var(--inset); border-radius: 8px; padding: 10px; max-height: 280px; overflow: auto; color: var(--body); }
+@media (max-width: 640px) { .crform .span2 { grid-column: span 1; } }

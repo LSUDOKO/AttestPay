@@ -53,6 +53,18 @@ const NAV: { group: string; items: { id: string; label: string }[] }[] = [
     ],
   },
   {
+    group: "Credit & Ops",
+    items: [
+      { id: "credit", label: "Credit Lines" },
+      { id: "passport", label: "Credit Passport" },
+      { id: "disputes", label: "Disputes & Revocations" },
+      { id: "webhooks", label: "Webhooks & Events" },
+      { id: "teams", label: "Teams & Roles" },
+      { id: "audit", label: "Audit Log" },
+      { id: "sdk", label: "SDK" },
+    ],
+  },
+  {
     group: "SigNoz",
     items: [
       { id: "signoz-overview", label: "Observability Overview" },
@@ -666,6 +678,144 @@ droid     mcp add attestpay https://<host>/c/<secret>/mcp --type http`} />
           </Section>
 
           {/* ---- SigNoz Observability ---- */}
+          <Section id="credit" title="Credit Lines">
+            <p className="docp">
+              Verified payment history is worth something only if it unlocks capital. A credit line is a lender&apos;s
+              offer to an agent&apos;s funding account: a limit, a simple interest rate, an expiry. Both parties sign the
+              terms (EIP-712, domain-bound to the deployed <code>AttestPayCreditLine</code>), the server registers them on
+              Creditcoin, and from then on:
+            </p>
+            <ul className="docul">
+              <li className="docli">
+                <b>Draw.</b> The agent calls <code>draw_credit</code>. The server pays USDC from the lender&apos;s designated{" "}
+                <b>funding card</b> to the borrower&apos;s funding account through the ordinary <code>spend()</code> path — so the
+                lender&apos;s own card terms are the on-chain ceiling on Base, and the line&apos;s limit is the ceiling on
+                Creditcoin.
+              </li>
+              <li className="docli">
+                <b>Repay.</b> The agent calls <code>repay_credit</code>; USDC goes from its card to the lender&apos;s address within
+                the card&apos;s own terms. Repaying drawn + interest in full marks the line repaid on-chain.
+              </li>
+              <li className="docli">
+                <b>Prove.</b> Each draw and repayment is anchored on the attested source chain by <code>FactAnchor</code> and
+                proven into <code>AttestPayCreditLine</code>, which advances the line from the proven bytes. Same trust model
+                as payments: the anchor is proven, the anchorer asserts the Base transfer, the tx hash lets anyone check.
+              </li>
+              <li className="docli">
+                <b>Default.</b> A balance past expiry is a default (<code>markDefaulted</code>, permissionless). A late repayment
+                still clears it — the default stays on the record. <code>AttestPayGuarantee</code> lets anyone bond CTC behind a
+                borrower; a proven default is slashable in the lender&apos;s favour, which is how an agent with no history can
+                still be lent to.
+              </li>
+            </ul>
+            <Note>
+              Two deliberate departures from the Attestcoin protocol&apos;s <code>ASCLoanManager</code> example: terms are
+              signed under an EIP-712 domain with a per-lender nonce (the example&apos;s <code>abi.encodePacked</code> hash is
+              replayable across deployments), and registration is permissionless rather than <code>onlyOwner</code> — both
+              signatures are required, so it does not matter who submits.
+            </Note>
+          </Section>
+
+          <Section id="passport" title="Credit Passport">
+            <p className="docp">
+              <code>CreditPassport.passportOf(account)</code> composes everything Creditcoin knows about an agent&apos;s funding
+              account — verified payments and terms compliance, lines drawn / repaid / defaulted, disputes, CTC bonded
+              behind it — into one struct with a stable ABI, and computes the score on-chain from a published formula. Any
+              Creditcoin dApp can call it; nobody has to trust the dashboard&apos;s arithmetic.
+            </p>
+            <p className="docp">
+              Off-chain, <code>GET /passport/:address</code> is public and returns the same record with a <b>signed credential</b>
+              (EIP-191 over the key-sorted JSON payload, signed by the anchorer, 24h expiry). <code>POST /passport/verify</code>{" "}
+              or <code>AttestPay.passport.verify()</code> in the SDK checks it with no RPC. The formula: payment count ×4 (max
+              40) + verified USDC ×3 (max 30) + history days (max 30), scaled by the within-terms rate where terms exist; then
+              +10 per repaid line (max 20), −25 per default, −10 per upheld dispute; clamped 0..100. A summary of public facts,
+              not a risk model.
+            </p>
+          </Section>
+
+          <Section id="disputes" title="Disputes & Revocations">
+            <p className="docp">
+              Payments are irreversible, so the recourse is a record. A dispute is opened against one confirmed payment (by the
+              owner, a team member, or the agent via <code>dispute_payment</code>), adjudicated by the operator (upheld /
+              rejected) or withdrawn by the opener, and — where <code>AttestPayLedger</code> is configured — proven into
+              Creditcoin at both ends. Upheld disputes count against the payer&apos;s passport; rejected ones are recorded but do
+              not.
+            </p>
+            <p className="docp">
+              Revocations are proven the same way. <code>AttestPayASC.revokeCardTerms</code> flips a flag; the ledger records{" "}
+              <b>when</b>, from attested bytes, so any counterparty can answer &ldquo;was this card live when it paid me?&rdquo;
+              with <code>wasRevokedAt(cardId, paidAt)</code> — without taking AttestPay&apos;s word for it.
+            </p>
+          </Section>
+
+          <Section id="webhooks" title="Webhooks & Events">
+            <p className="docp">
+              Every card action, confirmed payment, verified or failed proof/fact, credit-line step, dispute and low-budget
+              alert is an event. Create webhooks in Settings or via <code>POST /api/webhooks</code>; each delivery is a JSON
+              POST with <code>X-AttestPay-Event</code>, <code>X-AttestPay-Delivery</code> and{" "}
+              <code>X-AttestPay-Signature: t=&lt;unix&gt;,v1=&lt;hex&gt;</code>, where <code>v1</code> is HMAC-SHA256 over{" "}
+              <code>{"${t}.${body}"}</code> with the secret shown once at creation. Retries: 30s, 2m, 10m, 1h, 6h, then dead
+              (retryable by hand). Endpoints must be https on a public host.
+            </p>
+            <Table
+              head={["Event", "When"]}
+              rows={[
+                [<code key="e">card.issued · frozen · unfrozen · revoked · nuked · deleted · secret_rotated</code>, "Card lifecycle"],
+                [<code key="e">charge.confirmed</code>, "A payment, draw or repayment confirmed on Base"],
+                [<code key="e">proof.verified · proof.failed</code>, "The payment's Attestcoin proof reached a terminal state"],
+                [<code key="e">fact.verified · fact.failed</code>, "A draw, repayment, dispute or revocation proof reached a terminal state"],
+                [<code key="e">credit_line.proposed · signed · opened · drawn · repaid</code>, "Credit-line lifecycle"],
+                [<code key="e">dispute.opened · dispute.resolved</code>, "Dispute lifecycle"],
+                [<code key="e">budget.low</code>, "Once per period when remaining budget ≤ the card's threshold (default 20%)"],
+              ]}
+            />
+          </Section>
+
+          <Section id="teams" title="Teams & Roles">
+            <p className="docp">
+              A card belongs to one wallet; a team is an access layer over it. Invite wallets by address (they attach when that
+              wallet signs in), assign cards, and let roles govern what members may do:
+            </p>
+            <Table
+              head={["Role", "May"]}
+              rows={[
+                ["viewer", "Read cards, charges, proofs, credit, disputes"],
+                ["member", "+ freeze / unfreeze, open disputes, draw and repay credit, alert thresholds"],
+                ["admin", "+ assign and unassign cards, manage members below owner"],
+                ["owner", "+ rename and delete the team"],
+              ]}
+            />
+            <Note warn>
+              No role can issue a card, reveal or rotate its URL, or revoke it on-chain: those need the owning wallet&apos;s
+              signature or expose the bearer credential, and a role is not a key. Freeze is the team-level kill switch.
+            </Note>
+          </Section>
+
+          <Section id="audit" title="Audit Log">
+            <p className="docp">
+              Who did what to which card, from which lane (ops token, Privy user, agent card, system), with detail and IP.
+              Scoped to the user&apos;s own actions plus anything done to their cards; the operator sees everything with{" "}
+              <code>?all=1</code>. Filter by card, action and time; export as JSON or CSV (<code>?format=csv</code>).
+            </p>
+          </Section>
+
+          <Section id="sdk" title="SDK">
+            <p className="docp">
+              <code>@attestpay/sdk</code> (<code>packages/sdk</code>) is a typed client over the whole API — cards, cross-chain
+              reads, credit, disputes, passport, guarantees, webhooks, events, audit, alerts, teams — plus the two pure verifiers
+              every integrator needs: <code>verifyWebhookSignature</code> (WebCrypto) and <code>verifyPassportCredential</code>{" "}
+              (EIP-191). Typed refusals arrive as <code>AttestPayError</code> with the server&apos;s code.
+            </p>
+            <pre className="doccode">{`import { AttestPay } from "@attestpay/sdk";
+
+const ap = new AttestPay({ baseUrl: "https://api.example.com", token: PRIVY_ACCESS_TOKEN });
+const { as_borrower } = await ap.credit.list();
+await ap.credit.draw(as_borrower[0].line_id, { card_id, amount: "4.00", idempotency_key: "draw-1" });
+
+const passport = await ap.passport.get("0xAgentFundingAccount");
+const ok = await ap.passport.verify(passport.credential!, { expectedSigner: ANCHORER });`}</pre>
+          </Section>
+
           <Section id="signoz-overview" title="SigNoz Observability">
             <p className="docp">
               AttestPay is <b>fully instrumented with OpenTelemetry</b> and ships <b>traces, metrics, and logs</b> to{" "}
@@ -1063,6 +1213,15 @@ OTEL_LOGS_EXPORTER=otlp`} />
                 [<code key="p">POST /nuke/prepare · /finalize</code>, "Client-signed cascade nuke of every card"],
                 [<code key="p">DELETE /cards/:id</code>, "Bookkeeping removal of a dead card + its subtree"],
                 [<code key="p">GET /oauth/request · POST /oauth/approve · /deny</code>, "The card-picker consent backend"],
+                [<code key="p">POST /credit-lines · GET /credit-lines · GET /credit-lines/:id</code>, "Propose (returns EIP-712 typed data), list as lender/borrower, detail with events, facts and the chain's view"],
+                [<code key="p">POST /credit-lines/:id/sign · /draw · /repay · /settle · /slash</code>, "Per-party signature (second one registers on Creditcoin); draw and repay through spend(); lender/operator settle; slash a guarantee"],
+                [<code key="p">POST /cards/:id/disputes · GET /cards/:id/disputes · GET /disputes · POST /disputes/:id/resolve</code>, "Open, list, adjudicate (operator) or withdraw (opener)"],
+                [<code key="p">GET /cards/:id/passport · GET /passport/:address · POST /passport/verify</code>, "Owner view; the public passport with its signed credential; offline-equivalent verification"],
+                [<code key="p">GET /guarantees/:address · POST /guarantees/bond</code>, "CTC bonded behind an account; operator bonds from the anchorer key"],
+                [<code key="p">GET /cards/:id/attestcoin-facts · POST /attestcoin-facts/:id/retry</code>, "The facts pipeline per card; re-arm a failed fact"],
+                [<code key="p">POST /webhooks · GET /webhooks · DELETE /webhooks/:id · POST /webhooks/:id/test · /pause · GET /webhooks/:id/deliveries</code>, "Webhook CRUD, test delivery, delivery log and retry"],
+                [<code key="p">GET /events · GET /audit[?format=csv] · GET/PUT /cards/:id/alerts</code>, "Event outbox, audit export, budget-alert threshold"],
+                [<code key="p">POST /teams · GET /teams · GET/PATCH/DELETE /teams/:id · POST/DELETE /teams/:id/members · POST /cards/:id/team</code>, "Teams, membership by wallet address, card assignment"],
               ]}
             />
             <h3>OAuth 2.1 (self-hosted authorization server)</h3>

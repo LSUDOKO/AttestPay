@@ -166,6 +166,30 @@ export function useRemit() {
     [embeddedWallet, address],
   );
 
+  // --- Generic EIP-712 signing (credit-line terms). Same route as SHIM 2: the
+  // wallet's own provider signs eth_signTypedData_v4 with the embedded key. The
+  // server ships bigints as decimal strings and includes EIP712Domain in types. ---
+  const signTypedData = useCallback(
+    async (td: { domain: Record<string, unknown>; types: Record<string, Array<{ name: string; type: string }>>; primaryType: string; message: Record<string, unknown> }): Promise<Hex> => {
+      if (!embeddedWallet || !address) throw new Error("embedded wallet not ready");
+      const provider = await embeddedWallet.getEthereumProvider();
+      const types = td.types.EIP712Domain
+        ? td.types
+        : {
+            EIP712Domain: [
+              { name: "name", type: "string" },
+              { name: "version", type: "string" },
+              { name: "chainId", type: "uint256" },
+              { name: "verifyingContract", type: "address" },
+            ],
+            ...td.types,
+          };
+      const v4 = JSON.stringify({ domain: debigint(td.domain), types, primaryType: td.primaryType, message: debigint(td.message) });
+      return (await provider.request({ method: "eth_signTypedData_v4", params: [address, v4] })) as Hex;
+    },
+    [embeddedWallet, address],
+  );
+
   return {
     ready,
     authenticated,
@@ -178,5 +202,6 @@ export function useRemit() {
     sign7702,
     signOnboardProof,
     signDelegation,
+    signTypedData,
   };
 }
