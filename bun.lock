@@ -13,7 +13,7 @@
       "name": "@attestpay/dashboard",
       "version": "0.18.0",
       "dependencies": {
-        "@metamask/delegation-core": "^2.2.1",
+        "@metamask/delegation-core": "^3.0.0",
         "@metamask/smart-accounts-kit": "1.6.0",
         "@privy-io/react-auth": "^3",
         "motion": "^12.40.0",
@@ -36,7 +36,7 @@
       "version": "0.18.0",
       "dependencies": {
         "@gluwa/usc-sdk": "^0.18.0",
-        "@metamask/delegation-core": "^2.2.1",
+        "@metamask/delegation-core": "^3.0.0",
         "@metamask/smart-accounts-kit": "^1.6.0",
         "@opentelemetry/api": "^1.9.0",
         "@opentelemetry/api-logs": "^0.57.0",
@@ -419,7 +419,7 @@
 
     "@metamask/delegation-abis": ["@metamask/delegation-abis@1.1.0", "", {}, "sha512-n7XgRAM+pKUqmw4X+nAxM9a9HTBGe049WCAbpnHV6WoT6JnHhurMSUiqpAwMh69RhEykBtJPYSVPTVlJu6pEPg=="],
 
-    "@metamask/delegation-core": ["@metamask/delegation-core@2.2.1", "", { "dependencies": { "@metamask/abi-utils": "^3.0.0", "@metamask/utils": "^11.4.0", "@noble/hashes": "^1.8.0" } }, "sha512-fpB25AgmBxTJYhHj92tFS4dJe63x6wz71c8dPTwUin12dAvFMWM3PH+rm4C34iPb5ZrQzkAPi4e9z2njmwEZUA=="],
+    "@metamask/delegation-core": ["@metamask/delegation-core@3.0.0", "", { "dependencies": { "@metamask/abi-utils": "^3.0.0", "@metamask/utils": "^11.4.0", "@noble/hashes": "^1.8.0" } }, "sha512-crrbAFb6+uyzQ+q9F8wyOFK42/f6tpFiUiLq8fxV7+McD2AbqmsxFEBH0bB4pKFjdxi3HxKn8naEDR7/w7k45A=="],
 
     "@metamask/delegation-deployments": ["@metamask/delegation-deployments@1.4.0", "", {}, "sha512-QuO4Fiz3GsP7nwcUpXFEVTxmRGBTkriYeZ7DBLxUAqbUQx7Kg630eR1SgvTn/eBMkmXB2tZJW9am/iGuAcySlw=="],
 
@@ -1964,6 +1964,8 @@
     "@metamask/sdk-communication-layer/readable-stream": ["readable-stream@3.6.2", "", { "dependencies": { "inherits": "^2.0.3", "string_decoder": "^1.1.1", "util-deprecate": "^1.0.1" } }, "sha512-9u/sniCrY3D5WdsERHzHE4G2YCXqoG5FTHUiCC4SIbr6XcLZBY05ya9EKjYek9O5xOAwjGq+1JdGBAS7Q9ScoA=="],
 
     "@metamask/sdk-communication-layer/uuid": ["uuid@8.3.2", "", { "bin": { "uuid": "dist/bin/uuid" } }, "sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg=="],
+
+    "@metamask/smart-accounts-kit/@metamask/delegation-core": ["@metamask/delegation-core@2.2.1", "", { "dependencies": { "@metamask/abi-utils": "^3.0.0", "@metamask/utils": "^11.4.0", "@noble/hashes": "^1.8.0" } }, "sha512-fpB25AgmBxTJYhHj92tFS4dJe63x6wz71c8dPTwUin12dAvFMWM3PH+rm4C34iPb5ZrQzkAPi4e9z2njmwEZUA=="],
 
     "@opentelemetry/auto-instrumentations-node/@opentelemetry/sdk-node": ["@opentelemetry/sdk-node@0.200.0", "", { "dependencies": { "@opentelemetry/api-logs": "0.200.0", "@opentelemetry/core": "2.0.0", "@opentelemetry/exporter-logs-otlp-grpc": "0.200.0", "@opentelemetry/exporter-logs-otlp-http": "0.200.0", "@opentelemetry/exporter-logs-otlp-proto": "0.200.0", "@opentelemetry/exporter-metrics-otlp-grpc": "0.200.0", "@opentelemetry/exporter-metrics-otlp-http": "0.200.0", "@opentelemetry/exporter-metrics-otlp-proto": "0.200.0", "@opentelemetry/exporter-prometheus": "0.200.0", "@opentelemetry/exporter-trace-otlp-grpc": "0.200.0", "@opentelemetry/exporter-trace-otlp-http": "0.200.0", "@opentelemetry/exporter-trace-otlp-proto": "0.200.0", "@opentelemetry/exporter-zipkin": "2.0.0", "@opentelemetry/instrumentation": "0.200.0", "@opentelemetry/propagator-b3": "2.0.0", "@opentelemetry/propagator-jaeger": "2.0.0", "@opentelemetry/resources": "2.0.0", "@opentelemetry/sdk-logs": "0.200.0", "@opentelemetry/sdk-metrics": "2.0.0", "@opentelemetry/sdk-trace-base": "2.0.0", "@opentelemetry/sdk-trace-node": "2.0.0", "@opentelemetry/semantic-conventions": "^1.29.0" }, "peerDependencies": { "@opentelemetry/api": ">=1.3.0 <1.10.0" } }, "sha512-S/YSy9GIswnhYoDor1RusNkmRughipvTCOQrlF1dzI70yQaf68qgf5WMnzUxdlCl3/et/pvaO75xfPfuEmCK5A=="],
 
