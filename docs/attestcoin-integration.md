@@ -924,3 +924,25 @@ Then set `ATTESTPAY_FACT_ANCHOR_ADDRESS`, `ATTESTPAY_CREDIT_LINE_ADDRESS`,
 `checkDeployment()` at boot verifies the consumers' `factAnchor`, `trustedAnchorer` and
 `sourceChainKey` against the process configuration, the same way it does for the ASC.
 
+
+### Live end-to-end run of the facts pipeline (2026-09-13)
+
+A dispute driven through the real networks against the contracts above, from a
+local server booted with the deployed addresses. Boot resolved the chain key against
+the live registry (`attested chains: 3=1(Ethereum), 1=11155111(Sepolia ethereum) ·
+payment chain 8453 attested: false`) and `checkDeployment` passed for the ASC, the
+credit line and the ledger.
+
+| Step | Where | Evidence |
+|---|---|---|
+| Dispute opened (`POST /api/cards/:id/disputes`) | local | `dsp_5c21168a0a80442d8dc9`, fact `fact:dispute_opened:…` queued `pending` |
+| Anchored by the worker | Ethereum Sepolia | [`0xf93e4d2b…1f2a`](https://sepolia.etherscan.io/tx/0xf93e4d2b501bc9aa3070ff3518ef8fed196c61cc0beddb941d808af266fa1f2a) at height 11690686, on the second tick (attempts=2) |
+| Attested | Attestcoin | ~9 minutes after anchoring (lag was 39–40 blocks) |
+| Proven into `AttestPayLedger.verifyFacts` | Creditcoin CC3 | [`0x2e8d9f45…92f0`](https://creditcoin-testnet.blockscout.com/tx/0x2e8d9f45deda9f77b134fea0c84e452b294b76c9662acfa988e4016f849492f0), status 1, one `DisputeRecorded` log |
+| Read back | Creditcoin CC3 | `getDispute` → status `Open`, payer/merchant = the anchorer, `sourceTxHash` = the FactAnchor deployment tx, amount 1 USDC (notional, labelled in the reason), reason preserved verbatim |
+| Passport | `CreditPassport.passportOf` via `GET /passport/:address` | `disputes_opened: 1`, score unchanged at 10/F (an open dispute is recorded, not penalised; only an upheld one is) |
+
+As in the payment run, the "source transaction" is a real transaction of the
+anchorer's own on Sepolia and the amount is notional, so no false claim about anyone
+else's payment is put on a public chain. Every leg — anchor, attestation wait, proof
+generation, on-chain verification, read-back — is the real thing.
