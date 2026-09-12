@@ -94,8 +94,18 @@ export async function executeDraw(
     // The inline confirm hook ran before the event existed; enqueue now if confirmed.
     // A still-pending charge is picked up by the reconcile sweep's hook later.
     factId = ac.enqueueLineFactForCharge({ store: deps.store, attestcoin: acStore, config: client.config }, charge.id, now);
+    emitLineEvent(deps, line, "credit_line.drawn", { charge_id: charge.id, amount: usdc(args.amountAtoms), status: receipt.status, tx_hash: receipt.tx });
   }
   return { receipt, charge_id: charge.id, line: acStore.getLine(lineId)!, fact_id: factId };
+}
+
+/** Tells both parties. The lender is a user; the borrower may be one too. */
+function emitLineEvent(deps: AppDeps, line: ac.CreditLineRow, type: "credit_line.drawn" | "credit_line.repaid", data: Record<string, unknown>): void {
+  if (!deps.events) return;
+  const payload = { line_id: line.id, lender: line.lender_address, borrower: line.borrower_address, ...data };
+  deps.events.emit(type, { userId: line.lender_user_id }, payload);
+  const b = deps.store.getUserByAddress(line.borrower_address);
+  if (b && b.id !== line.lender_user_id) deps.events.emit(type, { userId: b.id }, payload);
 }
 
 /** Executes a repayment from `cardId` (a borrower-side card) to the lender. */
@@ -140,6 +150,7 @@ export async function executeRepayment(
       ac.recordLineEvent(acStore, line, "repayment", charge.id, args.amountAtoms, now);
     }
     factId = ac.enqueueLineFactForCharge({ store: deps.store, attestcoin: acStore, config: client.config }, charge.id, now);
+    emitLineEvent(deps, line, "credit_line.repaid", { charge_id: charge.id, amount: usdc(args.amountAtoms), status: receipt.status, tx_hash: receipt.tx });
   }
   return { receipt, charge_id: charge.id, line: acStore.getLine(lineId)!, fact_id: factId };
 }

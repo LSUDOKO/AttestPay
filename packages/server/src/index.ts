@@ -8,6 +8,7 @@ import { trace } from "@opentelemetry/api";
 import { attestcoin, reconcilePending } from "@attestpay/engine";
 import { createApp } from "./app";
 import { envInt, realDeps } from "./deps";
+import { deliverWebhooks } from "./events/deliver";
 
 const deps = realDeps();
 const app = createApp(deps);
@@ -114,6 +115,27 @@ if (acDeps?.client) {
     attestcoin: acStore,
     client,
     batchSize: envInt("ATTESTPAY_ATTESTCOIN_BATCH_SIZE", 10),
+    // Verified / failed proofs and facts become events (and webhooks).
+    onTerminal: (e: attestcoin.PipelineEvent) => {
+      if (!deps.events) return;
+      if (e.pipeline === "payment") {
+        deps.events.emit(e.status === "verified" ? "proof.verified" : "proof.failed", { cardId: e.row.card_id }, {
+          charge_id: e.row.charge_id,
+          anchor_tx_hash: e.row.anchor_tx_hash,
+          creditcoin_tx_hash: e.row.creditcoin_tx_hash,
+          error: e.row.error,
+        });
+      } else {
+        deps.events.emit(e.status === "verified" ? "fact.verified" : "fact.failed", { cardId: e.row.card_id }, {
+          fact_id: e.row.id,
+          kind: e.row.kind,
+          ref_id: e.row.ref_id,
+          anchor_tx_hash: e.row.anchor_tx_hash,
+          creditcoin_tx_hash: e.row.creditcoin_tx_hash,
+          error: e.row.error,
+        });
+      }
+    },
   });
   const runAttestcoinSweep = () =>
     otel.startActiveSpan("attestcoin_sweep", async (span) => {
@@ -175,6 +197,30 @@ if (acDeps?.client) {
     console.log(
       "[attestcoin] proof worker DISABLED (ATTESTPAY_ATTESTCOIN_SWEEP_INTERVAL_MS=0): payments will queue but never verify",
     );
+  }
+}
+
+// Webhook delivery sweep: signed POSTs for every queued event, with backoff. Off when
+// the bus is absent (tests) or the interval is 0.
+if (deps.events) {
+  const bus = deps.events;
+  const whMs = envInt("ATTESTPAY_WEBHOOK_INTERVAL_MS", 15_000);
+  if (whMs > 0) {
+    setInterval(() => {
+      otel.startActiveSpan("webhook_deliver_sweep", async (span) => {
+        try {
+          const r = await deliverWebhooks(bus.events);
+          span.setAttribute("attempted", r.attempted);
+          span.setAttribute("delivered", r.delivered);
+          span.setAttribute("dead", r.dead);
+          if (r.attempted) console.log(`[webhooks] ${r.delivered} delivered, ${r.failed} retrying, ${r.dead} dead`);
+        } catch (e) {
+          span.recordException(e as Error);
+        } finally {
+          span.end();
+        }
+      });
+    }, whMs);
   }
 }
 

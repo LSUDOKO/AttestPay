@@ -50,6 +50,7 @@ import type { OAuthStore } from "../oauth/store";
 import { onboardProofMessage } from "./privy";
 import { attestcoinRoutes } from "../attestcoin/routes";
 import { creditRoutes, type Actor } from "../attestcoin/credit-routes";
+import { eventRoutes } from "../events/routes";
 import { compileIntent } from "../venice/compiler";
 import { basescanLookup, registryResolvers } from "../venice/resolvers";
 import { errorsTotal, emitCardLog, emitErrorLog } from "@attestpay/engine";
@@ -199,6 +200,30 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
     if (c.get("auth").kind !== "admin") throw new ForbiddenError("admin token required");
   };
 
+  /** Records a card action in the audit log and emits its event. Never throws and
+   * never blocks: bookkeeping about an action must not be able to fail the action. */
+  const note = (
+    c: Context<{ Variables: { auth: AuthCtx } }>,
+    action: string,
+    event: import("../events/store").EventType | null,
+    cardId: string,
+    detail?: Record<string, unknown>,
+  ): void => {
+    const ev = deps.events;
+    if (!ev) return;
+    try {
+      const auth = c.get("auth");
+      const actor =
+        auth.kind === "admin"
+          ? { kind: "admin" as const, id: "admin" }
+          : { kind: "user" as const, id: deps.store.getUserByPrivyDid(auth.did)?.id ?? auth.did };
+      ev.audit(actor, action, { type: "card", id: cardId }, detail, c.req.header("x-forwarded-for") ?? null);
+      if (event) ev.emit(event, { cardId }, { card_id: cardId, ...(detail ?? {}) });
+    } catch {
+      /* see above */
+    }
+  };
+
   // ---- Privy lane: onboarding + client-signed issuance ----
 
   // Onboard: the browser has just created the embedded wallet (A_user) and signed
@@ -331,6 +356,7 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
       if (deps.stripe) void deps.stripe.ensureCardForRemitCard(issued.cardId).catch(() => {});
       // same shape for the cross-chain terms registry: useful, never blocking
       registerTermsInBackground(deps, issued.cardId);
+      note(c, "card.issued", "card.issued", issued.cardId, { name: entry.prepared.name, lane: "client-signed" });
       return { card_id: issued.cardId, card_url: cardUrl(issued.secret), terms: issued.terms };
     }),
   );
@@ -368,6 +394,7 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
       );
       if (deps.stripe) void deps.stripe.ensureCardForRemitCard(issued.cardId).catch(() => {});
       registerTermsInBackground(deps, issued.cardId);
+      note(c, "card.issued", "card.issued", issued.cardId, { name: body.name, lane: "server-signed" });
       return { card_id: issued.cardId, card_url: cardUrl(issued.secret), terms: issued.terms };
     }),
   );
@@ -423,6 +450,7 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
       const card = ownedCard(c, c.req.param("id"));
       const secret = await rotateCardSecret(deps.store, card.id);
       emitCardLog("secret_rotated", card.id);
+      note(c, "card.secret_rotated", "card.secret_rotated", card.id);
       return { card_url: cardUrl(secret) };
     }),
   );
@@ -465,14 +493,18 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
 
   app.post("/cards/:id/freeze", (c) =>
     handle(c, async () => {
-      freezeCard(deps.store, ownedCard(c, c.req.param("id")).id);
+      const frozenId = ownedCard(c, c.req.param("id")).id;
+      freezeCard(deps.store, frozenId);
+      note(c, "card.frozen", "card.frozen", frozenId);
       return { status: "frozen" };
     }),
   );
 
   app.post("/cards/:id/unfreeze", (c) =>
     handle(c, async () => {
-      unfreezeCard(deps.store, ownedCard(c, c.req.param("id")).id);
+      const thawedId = ownedCard(c, c.req.param("id")).id;
+      unfreezeCard(deps.store, thawedId);
+      note(c, "card.unfrozen", "card.unfrozen", thawedId);
       return { status: "active" };
     }),
   );
@@ -487,6 +519,7 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
       const ids = deps.store.subtreeIds(cardId);
       const r = deleteDeadCard(deps.store, cardId);
       for (const id of ids) oauth.revokeTokensByCardId(id);
+      note(c, "card.deleted", "card.deleted", cardId, { removed: r.removed });
       return { deleted: true, removed: r.removed };
     }),
   );
@@ -543,6 +576,7 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
           onValidated: () => pendingAdmin.delete(body.prepare_id!),
         });
         cascadeRevokeTokens(card.id);
+        note(c, "card.revoked", "card.revoked", card.id, { tx: result.txHash, lane: "client-signed" });
         return { status: "revoked", tx: result.txHash };
       } finally {
         entry.inProgress = false; // no-op if consumed; re-arms retry on a bad signature
@@ -587,6 +621,7 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
           onValidated: () => pendingAdmin.delete(body.prepare_id!),
         });
         cascadeRevokeUserTokens(entry.prepared.userId);
+        for (const card of deps.store.listCards(entry.prepared.userId)) note(c, "card.nuked", "card.nuked", card.id, { tx: result.txHash });
         return { status: "nuked", tx: result.txHash, new_nonce: result.newNonce!.toString() };
       } finally {
         entry.inProgress = false;
@@ -606,6 +641,7 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
         card.id,
       );
       cascadeRevokeTokens(card.id);
+      note(c, "card.revoked", "card.revoked", card.id, { tx: result.txHash, lane: "server-signed" });
       return { status: "revoked", tx: result.txHash };
     }),
   );
@@ -621,6 +657,7 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
         nukeUserId,
       );
       cascadeRevokeUserTokens(nukeUserId);
+      for (const card of deps.store.listCards(nukeUserId)) note(c, "card.nuked", "card.nuked", card.id, { tx: result.txHash });
       return { status: "nuked", tx: result.txHash, new_nonce: result.newNonce.toString() };
     }),
   );
@@ -731,6 +768,7 @@ export function apiRoutes(deps: AppDeps, oauth: OAuthStore): Hono<ApiEnv> {
       ? { kind: "admin", userId: normUserId(requested ?? "elpabl0-dev") }
       : { kind: "privy", user: boundUser(c) };
   app.route("/", creditRoutes(deps, ownedCard, handle, actor));
+  app.route("/", eventRoutes(deps, ownedCard, handle, actor));
 
   app.get("/tree", (c) =>
     handle(c, async () => {

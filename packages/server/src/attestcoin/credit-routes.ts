@@ -24,6 +24,8 @@ export type Actor = { kind: "admin"; userId: string } | { kind: "privy"; user: U
 export type ActorResolver = (c: Context<ApiEnv>, requestedUserId?: string) => Actor;
 
 const actorId = (a: Actor): string => (a.kind === "admin" ? a.userId : a.user.id);
+const auditActor = (a: Actor): { kind: "admin" | "user"; id: string } =>
+  a.kind === "admin" ? { kind: "admin", id: `admin:${a.userId}` } : { kind: "user", id: a.user.id };
 
 export function creditRoutes(
   deps: AppDeps,
@@ -171,6 +173,8 @@ export function creditRoutes(
         throw e;
       }
       void cl;
+      deps.events?.emit("credit_line.proposed", { userId: actorId(a) }, { line_id: row.id, borrower: row.borrower_address, limit: usdc(row.limit_atoms) });
+      deps.events?.audit(auditActor(a), "credit_line.proposed", { type: "credit_line", id: row.id }, { borrower: row.borrower_address, limit: usdc(row.limit_atoms), interest_bps: row.interest_bps });
       return lineDetail(row);
     }),
   );
@@ -221,7 +225,11 @@ export function creditRoutes(
           body.signature as Hex,
           now(),
         );
-        if (after.status === "signed") openLineInBackground(deps, after.id);
+        deps.events?.audit(auditActor(a), `credit_line.signed_by_${body.party}`, { type: "credit_line", id: line.id });
+        if (after.status === "signed") {
+          deps.events?.emit("credit_line.signed", { userId: line.lender_user_id }, { line_id: line.id });
+          openLineInBackground(deps, after.id);
+        }
         return lineDetail(after);
       } catch (e) {
         if (e instanceof ac.CreditLineError) throw new RefusalError("invalid_terms", e.message, { credit_error: e.code });
@@ -357,6 +365,8 @@ export function creditRoutes(
           { chargeId: body.charge_id, cardId: card.id, openedByUserId: actorId(a), reason: body.reason },
           now(),
         );
+        deps.events?.emit("dispute.opened", { cardId: card.id }, { dispute_id: d.id, charge_id: d.charge_id, reason: d.reason });
+        deps.events?.audit(auditActor(a), "dispute.opened", { type: "dispute", id: d.id }, { charge_id: d.charge_id }, null);
         return disputeView(d, s);
       } catch (e) {
         if (e instanceof ac.DisputeError) throw new RefusalError("invalid_terms", e.message, { dispute_error: e.code });
@@ -419,6 +429,8 @@ export function creditRoutes(
           actorId(a),
           now(),
         );
+        deps.events?.emit("dispute.resolved", { cardId: r.card_id }, { dispute_id: r.id, charge_id: r.charge_id, outcome, note: r.resolution_note });
+        deps.events?.audit(auditActor(a), "dispute.resolved", { type: "dispute", id: r.id }, { outcome }, null);
         return disputeView(r, s);
       } catch (e) {
         if (e instanceof ac.DisputeError) throw new RefusalError("invalid_terms", e.message, { dispute_error: e.code });

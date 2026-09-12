@@ -18,6 +18,8 @@ import { makePrivyVerifier, type PrivyVerifier } from "./api/privy";
 import { makeStripeClient, type StripeClient } from "./stripe/client";
 import { makeFiatSettler, type FiatSettler } from "./stripe/settlement";
 import { veniceChat, type ChatFn } from "./venice/client";
+import { EventBus } from "./events/bus";
+import { EventStore } from "./events/store";
 
 export type AppDeps = {
   store: Store;
@@ -49,6 +51,9 @@ export type AppDeps = {
     store: attestcoin.AttestcoinStore;
     client: attestcoin.AttestcoinClient | null;
   };
+  /** Events, webhooks, audit log and budget alerts. Absent in fakes that don't need
+   * them; every consumer treats it as optional. */
+  events?: EventBus;
 };
 
 /** Numeric env with a default that survives the empty string. `Number(x ?? d)` is a trap:
@@ -81,6 +86,7 @@ export function realDeps(): AppDeps {
     basescanKey: process.env.BASESCAN_API_KEY ?? null,
     stripe: makeStripeClient(),
     attestcoin: { store: acStore, client: null },
+    events: new EventBus(new EventStore(store.db), store),
   };
 
   // Attestcoin is optional. A misconfiguration must disable the cross-chain leg
@@ -192,7 +198,18 @@ export function openLineInBackground(deps: AppDeps, lineId: string): void {
   void attestcoin
     .openLineOnChain({ attestcoin: ac.store, client }, lineId, Math.floor(Date.now() / 1000))
     .then((r) => {
-      if (!r.ok) console.error(`[attestcoin] credit line ${lineId} registration failed: ${r.error}`);
+      if (!r.ok) {
+        console.error(`[attestcoin] credit line ${lineId} registration failed: ${r.error}`);
+        return;
+      }
+      const line = ac.store.getLine(lineId);
+      if (line) {
+        deps.events?.emit("credit_line.opened", { userId: line.lender_user_id }, { line_id: lineId, creditcoin_tx_hash: r.txHash ?? null });
+        const borrower = deps.store.getUserByAddress(line.borrower_address);
+        if (borrower && borrower.id !== line.lender_user_id) {
+          deps.events?.emit("credit_line.opened", { userId: borrower.id }, { line_id: lineId, creditcoin_tx_hash: r.txHash ?? null });
+        }
+      }
     })
     .catch(() => {
       /* recorded on the line row; the sweep retries */
@@ -204,9 +221,25 @@ export function openLineInBackground(deps: AppDeps, lineId: string): void {
  * Does nothing when Attestcoin is not configured. */
 export function enqueueForVerification(deps: AppDeps): (chargeId: string, cardId: string) => void {
   return (chargeId, cardId) => {
+    const now = Math.floor(Date.now() / 1000);
+    // Events first: a confirmed payment is worth telling people about whether or not
+    // the cross-chain leg is configured.
+    if (deps.events) {
+      const ch = deps.store.getCharge(chargeId);
+      deps.events.emit("charge.confirmed", { cardId }, {
+        charge_id: chargeId,
+        card_id: cardId,
+        kind: ch?.kind ?? null,
+        to: ch?.to_addr ?? null,
+        amount: ch ? (Number(ch.amount_atoms) / 1e6).toFixed(6) : null,
+        fee: ch ? (Number(ch.fee_atoms) / 1e6).toFixed(6) : null,
+        tx_hash: ch?.tx_hash ?? null,
+        memo: ch?.memo ?? null,
+      });
+      deps.events.checkBudget(cardId);
+    }
     const ac = deps.attestcoin;
     if (!ac?.client) return;
-    const now = Math.floor(Date.now() / 1000);
     ac.store.enqueue(chargeId, cardId, now);
     if (attestcoin.attestcoinFeatures(ac.client.config).credit) {
       attestcoin.enqueueLineFactForCharge({ store: deps.store, attestcoin: ac.store, config: ac.client.config }, chargeId, now);

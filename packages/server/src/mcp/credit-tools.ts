@@ -175,6 +175,8 @@ export function registerCreditTools(server: McpServer, deps: AppDeps, card: Card
             { chargeId: args.charge_id, cardId: card.id, openedByUserId: `card:${card.id}`, reason: args.reason },
             now(),
           );
+          deps.events?.emit("dispute.opened", { cardId: card.id }, { dispute_id: d.id, charge_id: d.charge_id, reason: d.reason, opened_by: "agent" });
+          deps.events?.audit({ kind: "card", id: `card:${card.id}` }, "dispute.opened", { type: "dispute", id: d.id }, { charge_id: d.charge_id });
           return {
             ...disputeView(d, store),
             on_chain: features.disputes
