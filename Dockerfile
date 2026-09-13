@@ -13,6 +13,7 @@ COPY package.json bun.lock ./
 COPY packages/engine/package.json packages/engine/
 COPY packages/server/package.json packages/server/
 COPY packages/dashboard/package.json packages/dashboard/
+COPY packages/sdk/package.json packages/sdk/
 RUN bun install --frozen-lockfile
 
 COPY . .
