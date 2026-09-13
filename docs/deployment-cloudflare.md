@@ -31,20 +31,34 @@ bun run --cwd packages/dashboard cf:deploy
 `cf:preview` runs the built Worker locally against the real Workers runtime, which is
 worth doing before a deploy — it catches Node-API use that `next build` does not.
 
-## Known gap in the current deployment
+## Current deployment
 
-The Worker currently live was built **without** `NEXT_PUBLIC_ATTESTPAY_API`, so it has
-the development default `http://localhost:4070/api` compiled into it. Every page renders,
-but nothing loads for a remote visitor: the browser tries to reach the visitor's own
-machine.
+Deployed 2026-09-13 (Worker version `b64cd9c4`) from the sketchbook redesign, built with
+`NEXT_PUBLIC_ATTESTPAY_API=https://attestpay-api.onrender.com/api`, so the bundle talks to
+the Render API (`render.yaml`, service `attestpay-api`). The Privy app id and client id
+fall back to the public defaults in `lib/chain.ts`, so they need no build variable.
 
-There is no server to point it at yet either — the previous Railway deployment
-(`glasspay-production.up.railway.app`) returns `404 Application not found`. Fixing this
-needs two things, in order:
+Routes verified live after deploy: `/`, `/app`, `/docs`, `/connect`, `/settings`, `/shop`,
+`/card/<id>`, `/passport/<address>` (200) and an unknown path (branded 404).
 
-1. Deploy `packages/server` somewhere with a persistent filesystem and a long-lived
-   process — see the note below on why that is not Workers.
-2. Rebuild and redeploy the dashboard with `NEXT_PUBLIC_ATTESTPAY_API` set to it.
+Two things must be true on the Render side before a visitor can sign in and onboard:
+
+1. The API has to be booting: its secrets (`ATTESTPAY_MASTER_KEY`, `ATTESTPAY_ADMIN_TOKEN`,
+   `ATTESTPAY_ATTESTCOIN_PRIVATE_KEY`, `ATTESTPAY_PRIVY_APP_ID`) are set only in the Render
+   dashboard, never committed.
+2. `ATTESTPAY_CORS_ORIGINS` must include `https://attestpay-dashboard.adoranto737.workers.dev`
+   (it is in `render.yaml`; the server defaults to `http://localhost:4071` otherwise, and
+   the browser will see a CORS failure on every `/api/*` call).
+
+The Worker is redeployed with `cf:build` + `cf:deploy`; nothing on Cloudflare holds state.
+
+### Workers, not Pages
+
+The dashboard is a Worker with static assets, not a Cloudflare Pages project. Cloudflare's
+Next.js path is `@opennextjs/cloudflare` on Workers; the Pages adapter
+(`@cloudflare/next-on-pages`) is deprecated and Pages is in maintenance mode. A
+`*.workers.dev` hostname is the equivalent of a `*.pages.dev` one, and a custom domain
+attaches the same way (Workers → Settings → Domains & Routes).
 
 ## Why the server is not on Workers
 

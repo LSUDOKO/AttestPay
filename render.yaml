@@ -16,6 +16,10 @@ services:
       # SQLite path. On the free plan this is ephemeral — see the disk note below.
       - key: ATTESTPAY_DB_PATH
         value: /data/attestpay.sqlite
+      # Browser origins allowed on /api/* and /shop/*: the Cloudflare Worker that
+      # serves the dashboard (docs/deployment-cloudflare.md). Comma-separated, exact match.
+      - key: ATTESTPAY_CORS_ORIGINS
+        value: https://attestpay-dashboard.adoranto737.workers.dev
       # Secrets: set in the Render dashboard, never committed.
       - key: ATTESTPAY_MASTER_KEY
         sync: false
