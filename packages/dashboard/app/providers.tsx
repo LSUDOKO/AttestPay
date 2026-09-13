@@ -29,7 +29,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         },
         defaultChain: base,
         supportedChains: [base],
-        appearance: { theme: "light", accentColor: "#1f6feb" },
+        appearance: { theme: "light", accentColor: "#1a3300" },
       }}
     >
       {/* motion respects the OS reduced-motion preference everywhere */}
