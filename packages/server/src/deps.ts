@@ -74,7 +74,10 @@ export function realDeps(): AppDeps {
   const store = new Store(); // ATTESTPAY_DB_PATH or :memory:
   const relayer = new Relayer();
   const pk = process.env.ATTESTPAY_DEV_USER_PK as Hex | undefined;
-  const privyAppId = process.env.ATTESTPAY_PRIVY_APP_ID;
+  // .trim(): a pasted-into-a-dashboard env var is the single most common way this
+  // silently breaks — a trailing newline/space survives copy-paste and makes every
+  // token fail the `aud` check below with an opaque 401 "unauthorized".
+  const privyAppId = process.env.ATTESTPAY_PRIVY_APP_ID?.trim() || undefined;
   // Created unconditionally so the proof tables always exist: the dashboard renders
   // an empty, labelled panel when the integration is off rather than 500-ing.
   const acStore = new attestcoin.AttestcoinStore(store.db);

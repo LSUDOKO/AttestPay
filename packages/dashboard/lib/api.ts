@@ -86,7 +86,18 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
       throw new Error("malformed response body");
     }
   }
-  if (!res.ok) throw new Error(body?.message ?? body?.error ?? `http ${res.status}`);
+  if (!res.ok) {
+    // A 401 here means the server rejected THIS Privy access token, not that the
+    // signature/onboard ceremony did anything wrong client-side. In practice this is
+    // almost always the API's ATTESTPAY_PRIVY_APP_ID not matching the app id this
+    // dashboard was built with (or being unset) — a deploy misconfig, not a user error.
+    if (res.status === 401) {
+      throw new Error(
+        "server rejected the session (401) · the API's ATTESTPAY_PRIVY_APP_ID likely doesn't match this dashboard's Privy app, or is unset",
+      );
+    }
+    throw new Error(body?.message ?? body?.error ?? `http ${res.status}`);
+  }
   return body as T;
 }
 
