@@ -237,7 +237,7 @@ function Consent() {
         <p className="err">{err}</p>
         <p style={body}>
           The request may have expired (the agent can retry), or your account isn&apos;t set up yet:{" "}
-          <Link href="/">open the dashboard</Link> first.
+          <Link href="/app">open the dashboard</Link> first.
         </p>
       </div>
     );
@@ -260,7 +260,7 @@ function Consent() {
       </p>
       {cards.length === 0 ? (
         <p style={body}>
-          No live cards to grant. <Link href="/">Issue one on the dashboard</Link>, then retry from your agent.
+          No live cards to grant. <Link href="/app">Issue one on the dashboard</Link>, then retry from your agent.
         </p>
       ) : (
         <>

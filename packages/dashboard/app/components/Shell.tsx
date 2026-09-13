@@ -13,6 +13,7 @@
 // its z-index.
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
@@ -23,6 +24,7 @@ import { publicClient, USDC_BASE, WETH_BASE } from "@/lib/chain";
 import type { useRemit } from "../useRemit";
 import { copyText, IconCheck, IconCopy, shortHex } from "./ui";
 import { ThemeToggle } from "./Theme";
+import { Logo } from "./Logo";
 import { DangerModal, type DangerPhase } from "./Confirm";
 
 type Remit = ReturnType<typeof useRemit>;
@@ -46,12 +48,23 @@ export function Cockpit({
   aggregate?: string; // the wallet-level fact line ("2 live cards · $30.00 / wk delegated")
   children: React.ReactNode;
 }) {
+  const path = usePathname();
+  const here = (p: string) => (p === "/app" ? path === "/app" || path?.startsWith("/card/") : path?.startsWith(p));
   return (
     <div className="app">
       <aside className="rail">
-        <Link className="brand" href="/">
-          AttestPay
-        </Link>
+        <Logo href="/app" />
+        <nav className="navlinks" aria-label="Sections">
+          <Link className={`navlink${here("/app") ? " on" : ""}`} href="/app">
+            Cards
+          </Link>
+          <Link className={`navlink${here("/settings") ? " on" : ""}`} href="/settings">
+            Settings
+          </Link>
+          <Link className={`navlink${here("/docs") ? " on" : ""}`} href="/docs">
+            Docs
+          </Link>
+        </nav>
         {back && (
           <Link className="railback" href={back.href} title={back.label} aria-label={back.label}>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>

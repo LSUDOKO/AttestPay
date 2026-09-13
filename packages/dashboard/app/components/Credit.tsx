@@ -237,7 +237,7 @@ function PassportCard({ passport }: { passport: Passport | null }) {
   }
   const p = passport.passport;
   return (
-    <div className="accard">
+    <div className="accard note-yellow">
       <h3>Credit Passport</h3>
       <div className="acgrade-row">
         <span className={`acgrade g${p.grade}`}>{p.grade}</span>

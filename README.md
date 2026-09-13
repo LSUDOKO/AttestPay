@@ -61,7 +61,7 @@ your wallet (EIP-7702 smart account)
 
 | Surface | URL |
 |---|---|
-| Dashboard (issue + manage cards) | deploy your own |
+| Landing page (`/`) + dashboard (`/app`) | deploy your own |
 | Docs (the full reference, in-app) | deploy your own |
 | Demo merchant (accepts the cards' Visas) | deploy your own |
 | API + MCP endpoint | deploy your own |

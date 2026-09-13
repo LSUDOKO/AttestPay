@@ -8,6 +8,7 @@
 import Link from "next/link";
 import { Fragment, useEffect, useState } from "react";
 import { ThemeToggle } from "../components/Theme";
+import { Logo } from "../components/Logo";
 import { IconCheck, IconCopy, copyText } from "../components/ui";
 
 // ---------------------------------------------------------------------------
@@ -201,8 +202,9 @@ export default function DocsPage() {
         <i className="docbeamB" />
         <i className="docbeamC" />
       </div>
-      <aside className="docnav">              <Link className="brand" href="/">AttestPay</Link>
-              <span className="docnavlabel">Documentation</span>
+      <aside className="docnav">
+        <Logo href="/" />
+        <span className="docnavlabel">Documentation</span>
         <nav className="docnavlist">
           {NAV.map((g) => (
             <Fragment key={g.group}>
@@ -217,7 +219,7 @@ export default function DocsPage() {
         </nav>
         <div className="docnavfoot">
           <ThemeToggle />
-          <Link className="docback" href="/">
+          <Link className="docback" href="/app">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
               <path d="M5 12h14M13 6l6 6-6 6" />
             </svg>
@@ -1388,7 +1390,7 @@ bun run --cwd packages/dashboard dev   # dashboard on :4071`} />
             </ul>
             <hr className="docrule" />
             <p className="docp">
-              Ready to issue one? <Link href="/">Open the dashboard</Link>, sign in, and your first card takes about a
+              Ready to issue one? <Link href="/app">Open the dashboard</Link>, sign in, and your first card takes about a
               minute.
             </p>
           </Section>

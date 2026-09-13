@@ -78,7 +78,7 @@ export default function CardPage({ params }: { params: Promise<{ id: string }> }
 
   return (
     <Cockpit
-      back={{ href: "/", label: "Dashboard" }}
+      back={{ href: "/app", label: "Dashboard" }}
       remit={remit}
       refresh={refresh}
       onLogout={logout}
@@ -104,7 +104,7 @@ export default function CardPage({ params }: { params: Promise<{ id: string }> }
         refresh={refresh}
         roots={[node]}
         currentId={card.card_id}
-        onDeleted={() => router.replace("/")}
+        onDeleted={() => router.replace("/app")}
       />
     </Cockpit>
   );

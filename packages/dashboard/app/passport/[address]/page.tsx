@@ -11,6 +11,7 @@ import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { api, type Passport } from "@/lib/api";
 import { CopyButton } from "../../components/Authority";
+import { PublicNav } from "../../components/Landing";
 import { shortHex } from "../../components/ui";
 
 export default function PassportPage({ params }: { params: Promise<{ address: string }> }) {
@@ -36,9 +37,11 @@ export default function PassportPage({ params }: { params: Promise<{ address: st
   const cred = p?.credential ?? null;
 
   return (
+    <>
+    <PublicNav links={false} />
     <main className="narrow">
       <div className="panel">
-        <p style={{ margin: "0 0 6px", fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--label)" }}>
+        <p className="microlbl" style={{ margin: "0 0 6px" }}>
           AttestPay credit passport
         </p>
         <h1 style={{ margin: "0 0 12px", fontSize: 20, overflowWrap: "anywhere" }}>{address}</h1>
@@ -147,6 +150,7 @@ export default function PassportPage({ params }: { params: Promise<{ address: st
         · agentic spending cards with cross-chain credit history on Creditcoin
       </p>
     </main>
+    </>
   );
 }
 

@@ -1,27 +1,25 @@
 "use client";
 
-// The sign-in screen · "The Counter" (login round 3, elpabl0's pick).
-// Split title card: the type column toward the center; the REAL dashboard
-// card (Visa face) resting tilted on the right; the silk spectrum grown into
-// page weather: blurred beams flowing in from the right edge, alive on
-// compositor-only transforms, dead just past the wordmark. The card's woven
-// guilloche flows only under the pointer (the dashboard grammar) · the beam
-// is the page's always-moving layer. The Boot overlay exits over this.
+// The sign-in screen, sketchbook edition. Split title page: the type column
+// toward the centre (badge, display headline with a highlighted word, the lede,
+// the CTA stack); the REAL dashboard card (Visa face) resting tilted on a mint
+// sticky-note on the right. The card's woven guilloche flows only under the
+// pointer (the dashboard grammar). Hand-drawn marks carry the atmosphere.
+// The Boot overlay exits over this.
 
 import { useState } from "react";
+import Link from "next/link";
 import { useLoginWithOAuth } from "@privy-io/react-auth";
 import { ChipDots, Guilloche } from "./ui";
+import { Logo } from "./Logo";
+import { SketchArrow, SketchStar } from "./Sketch";
 import s from "./login.module.css";
 
 function GoogleConnect() {
   const { initOAuth } = useLoginWithOAuth();
   return (
-    <button
-      className={`primary ${s.cta}`}
-      style={{ marginLeft: 8, backgroundColor: "#db4437" }}
-      onClick={() => initOAuth({ provider: "google" })}
-    >
-      Google
+    <button className={`pastel teal ${s.cta} ${s.google}`} onClick={() => initOAuth({ provider: "google" })}>
+      Continue with Google
     </button>
   );
 }
@@ -30,36 +28,54 @@ export function Login({ onLogin }: { onLogin: () => void }) {
   const [hover, setHover] = useState(false);
   return (
     <main className={s.stage} data-testid="login-screen">
-      <div className={s.aurora} aria-hidden>
-        <i className={s.beamA} />
-        <i className={s.beamB} />
-        <i className={s.beamC} />
+      <div className={s.brand}>
+        <Logo href="/" />
       </div>
+      <Link className={s.docslink} href="/docs">
+        Docs
+      </Link>
 
       <section className={s.type}>
-        <h1 className={`rv ${s.wm}`} style={{ animationDelay: ".05s" }}>
-          AttestPay
+        <span className={`rv ${s.badge}`} style={{ animationDelay: ".05s" }}>
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M9 1.5 3.5 9h4l-1 5.5L12 7H8z" />
+          </svg>
+          The dashboard
+        </span>
+        <h1 className={`rv ${s.wm}`} style={{ animationDelay: ".1s" }}>
+          Authority, <span className="hl wash">lent</span> not given.
         </h1>
-        <p className={`rv ${s.tag}`} style={{ animationDelay: ".13s" }}>
-          Authority, lent not given.
+        <p className={`rv ${s.tag}`} style={{ animationDelay: ".18s" }}>
+          Scoped, revocable spending cards for your agents.
         </p>
-        <p className={`rv ${s.lede}`} style={{ animationDelay: ".21s" }}>
-          Scoped, revocable spending cards for your agents · they borrow authority, never hold funds, and die on
-          revoke.
+        <p className={`rv ${s.lede}`} style={{ animationDelay: ".24s" }}>
+          They borrow authority within your terms, never hold funds, and die on revoke. Every payment is proven onto
+          Creditcoin as public, checkable credit history.
         </p>
-        <p className={`rv ${s.quiet}`} style={{ animationDelay: ".27s" }}>
+        <p className={`rv ${s.quiet}`} style={{ animationDelay: ".3s" }}>
           Sign in with email or Google · no seed phrase
         </p>
         <span className={`rv ${s.ctarow}`} style={{ animationDelay: ".36s" }}>
-          <button className={`primary ${s.cta}`} onClick={onLogin} data-testid="login">
-            Sign In
+          <button className={`primary arrow ${s.cta}`} onClick={onLogin} data-testid="login">
+            Sign in
           </button>
           <GoogleConnect />
         </span>
+        <div className={`rv ${s.backed}`} style={{ animationDelay: ".44s" }}>
+          <b>Built on:</b>
+          <span>Base</span>
+          <span>ERC-7710</span>
+          <span>x402</span>
+          <span>Creditcoin</span>
+          <span>MCP</span>
+        </div>
       </section>
 
       <section className={s.counter} aria-hidden>
         <div className={`rv ${s.frame}`} style={{ animationDelay: ".3s" }}>
+          <SketchStar className={s.sk1} size={72} />
+          <SketchArrow className={s.sk2} size={130} />
+          <div className={s.sticky} />
           <div className={s.tilt} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
             <div className={`card ${s.cardobj}`}>
               <div className="band">
@@ -68,6 +84,7 @@ export function Login({ onLogin }: { onLogin: () => void }) {
               <div className="inner">
                 <div className="row1">
                   <span className="wm">attestpay</span>
+                  <span className="ctag">live</span>
                 </div>
                 <ChipDots />
                 <div className="num">

@@ -44,7 +44,7 @@ export default function SettingsPage() {
   };
 
   return (
-    <Cockpit back={{ href: "/", label: "Dashboard" }} remit={remit} refresh={refresh} onLogout={logout} address={address}>
+    <Cockpit back={{ href: "/app", label: "Dashboard" }} remit={remit} refresh={refresh} onLogout={logout} address={address}>
       <div style={{ padding: "0 8px" }}>
         <h1 style={{ fontSize: 22, margin: "4px 0 14px" }}>Settings</h1>
         {msg && <p className="ok" style={{ margin: "0 0 10px" }}>{msg}</p>}

@@ -216,7 +216,7 @@ export function CreditCard({ credit }: { credit: CreditScore | null }) {
   const grade = credit.grade ?? "F";
 
   return (
-    <div className="accard">
+    <div className="accard note-mint">
       <h3>Credit Standing</h3>
       <div className="acgrade-row">
         <span className={`acgrade g${grade}`}>{grade}</span>
