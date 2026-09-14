@@ -20,6 +20,12 @@ services:
       # serves the dashboard (docs/deployment-cloudflare.md). Comma-separated, exact match.
       - key: ATTESTPAY_CORS_ORIGINS
         value: https://attestpay-dashboard.adoranto737.workers.dev
+      # This service's own public origin. Without it, cardUrl() (mcp/server.ts) and the
+      # OAuth issuer/resource metadata (oauth/routes.ts) fall back to
+      # http://localhost:<PORT> — every minted card MCP URL is then unreachable from
+      # outside this container, which is exactly what an agent hitting one sees.
+      - key: ATTESTPAY_PUBLIC_MCP_BASE
+        value: https://attestpay-api.onrender.com
       # Secrets: set in the Render dashboard, never committed.
       - key: ATTESTPAY_MASTER_KEY
         sync: false
