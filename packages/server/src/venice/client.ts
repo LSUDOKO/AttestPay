@@ -1,6 +1,12 @@
 // OpenAI-compatible chat client (Groq, Venice, etc.). Speaks the OpenAI wire format.
 // Model comes from VENICE_MODEL env var; key from VENICE_API_KEY; base URL from
 // VENICE_BASE_URL. Set VENICE_BASE_URL=https://api.groq.com/openai/v1 for Groq.
+//
+// DEFAULT_MODEL: llama-3.3-70b-versatile (and llama-3.1-8b-instant) were retired for
+// Groq's free/developer tiers on 2026-08-16 — kept enterprise-only, contact-sales
+// access. A standard-tier key gets a 404 "does not exist or you do not have access to
+// it" from either. openai/gpt-oss-120b is Groq's documented free-tier replacement as
+// of 2026-09; override with VENICE_MODEL if Groq's lineup moves again.
 
 import { trace } from "@opentelemetry/api";
 
@@ -18,7 +24,7 @@ const CHAT_TIMEOUT_TRIES = 3; // 3 × 20s worst case
 
 export function veniceChat(opts?: { apiKey?: string; model?: string; baseUrl?: string }): ChatFn {
   const apiKey = opts?.apiKey ?? process.env.VENICE_API_KEY;
-  const model = opts?.model ?? process.env.VENICE_MODEL ?? "llama-3.3-70b-versatile";
+  const model = opts?.model ?? process.env.VENICE_MODEL ?? "openai/gpt-oss-120b";
   const base = opts?.baseUrl ?? process.env.VENICE_BASE_URL ?? DEFAULT_BASE;
   return async (messages: ChatMessage[]) => {
     return tracer.startActiveSpan("nl_compile", async (span) => {
