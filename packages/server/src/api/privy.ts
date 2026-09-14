@@ -4,11 +4,37 @@
 // Privy API call. The verified claim is only WHO the user is (sub = did:privy:...);
 // the wallet binding is proven separately at onboard (see routes.ts).
 
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { createRemoteJWKSet, errors, jwtVerify } from "jose";
 
 export type PrivyAuth = { did: string };
 /** Returns the verified identity, or null for any invalid/expired/foreign token. */
 export type PrivyVerifier = (token: string) => Promise<PrivyAuth | null>;
+
+// Logged at most once per distinct failure reason: this env var is the single most
+// common Render/Fly/Railway misconfiguration (a pasted trailing newline, or the
+// client id swapped in for the app id), and every prior version of this file swallowed
+// jose's specific error, leaving only a bare 401 with nothing to grep in the deploy's
+// logs. `err.code`/`err.claim`/`err.reason` are jose's own diagnostic fields — never
+// the token or any secret — so this is safe to print.
+const warnedReasons = new Set<string>();
+function warnOnce(appId: string, e: unknown): void {
+  let detail: string;
+  if (e instanceof errors.JWTClaimValidationFailed) {
+    detail = `claim "${e.claim}" failed (${e.reason}) — if claim is "aud", ATTESTPAY_PRIVY_APP_ID does not match the app id the token was issued for`;
+  } else if (e instanceof errors.JWTExpired) {
+    detail = "token expired (client clock skew, or a stale token was replayed)";
+  } else if (e instanceof errors.JWKSNoMatchingKey || e instanceof errors.JWSSignatureVerificationFailed) {
+    detail = "no matching signing key / bad signature — check ATTESTPAY_PRIVY_APP_ID is the exact app id, not the client id";
+  } else if (e instanceof errors.JOSEError) {
+    detail = `${e.code}: ${e.message}`;
+  } else {
+    detail = e instanceof Error ? e.message : String(e);
+  }
+  const key = `${appId}:${detail}`;
+  if (warnedReasons.has(key)) return;
+  warnedReasons.add(key);
+  console.warn(`[privy] token rejected (appId=${appId}): ${detail}`);
+}
 
 export function makePrivyVerifier(appId: string): PrivyVerifier {
   // jose caches the JWKS and refetches on unknown-kid / cooldown — one fetch, not one per request
@@ -23,8 +49,9 @@ export function makePrivyVerifier(appId: string): PrivyVerifier {
       return typeof payload.sub === "string" && payload.sub.startsWith("did:privy:")
         ? { did: payload.sub }
         : null;
-    } catch {
-      return null; // invalid signature, expired, wrong aud/iss, malformed — all just "not authenticated"
+    } catch (e) {
+      warnOnce(appId, e); // invalid signature, expired, wrong aud/iss, malformed — logged once, then 401
+      return null;
     }
   };
 }
