@@ -21,9 +21,9 @@ import { EngineError, RefusalError } from "./errors";
 import { atomsToUsdc, parseAtoms, usdcToAtoms } from "./money";
 import type { Relayer } from "./relayer";
 import type { Store } from "./store";
-import { assertChainSpendable, confirmRedemption, delegationForMode, jitteredFee, validateSpend, type SpendDeps } from "./spend";
+import { assertChainSpendable, confirmRedemption, delegationForMode, jitteredFee, resolveStoredAuth, validateSpend, type SpendDeps } from "./spend";
 import { publicClient } from "./chains";
-import type { WireDelegation } from "./types";
+import type { Wire7702Auth, WireDelegation } from "./types";
 
 export type X402Requirement = {
   scheme: string;
@@ -172,7 +172,32 @@ export type X402SettleDeps = {
   confirmViaChain?: boolean;
   /** test seam: overrides the delegator 7702-code check */
   codeCheck?: (address: Address, chainId: ChainId) => Promise<boolean>;
+  /** Users store, so a delegator whose 7702 code has not landed yet can still pay:
+   * the authorization signed at onboard rides along on the redemption exactly as it
+   * does in spend.ts. Omit it and such a payer is refused (the pre-store behaviour). */
+  store?: Pick<Store, "getUserByAddress">;
+  /** test seam: overrides the live account-nonce read used to reject a stale auth */
+  accountNonce?: (address: Address, chainId: ChainId) => Promise<number>;
 };
+
+/** The authorizationList for this payer, or undefined when the account is already
+ * 7702-coded. Mirrors spend.ts: the FIRST payment from a fresh account carries the
+ * onboard authorization and deploys the code in the same transaction. A stale auth
+ * throws (RefusalError) rather than being silently dropped — it is guaranteed to
+ * revert on-chain, and the message tells the user to re-sign on the dashboard. */
+async function authListFor(
+  deps: X402SettleDeps,
+  delegator: Address,
+  chainId: ChainId,
+  hasCode: boolean,
+): Promise<Wire7702Auth[] | undefined> {
+  if (hasCode || !deps.store) return undefined;
+  const user = deps.store.getUserByAddress(delegator);
+  // No row, or a row that never stored an auth: both mean "this wallet has not
+  // onboarded", which the caller reports with the actionable message.
+  if (!user?.auth7702_json) return undefined;
+  return resolveStoredAuth("x402", user, chainId, deps.accountNonce);
+}
 
 function buildExecutions(req: X402Requirement, feeAtoms: bigint, chainId: ChainId) {
   return [
@@ -218,13 +243,27 @@ export async function verifyX402(
         .getCode({ address: body.delegator })
         .then((code) => !!code && code !== "0x")
         .catch(() => false);
-  if (!hasCode) {
-    return { isValid: false, invalidReason: "delegator_not_upgraded: payer account has no 7702 code" };
+  // No 7702 code yet is NOT fatal: the authorization signed at onboard deploys it on
+  // the first redemption (spend.ts does the same). Only a payer with neither code nor
+  // a usable stored auth is refused.
+  let authorizationList: Wire7702Auth[] | undefined;
+  try {
+    authorizationList = await authListFor(deps, body.delegator, chainId, hasCode);
+  } catch (e) {
+    return { isValid: false, invalidReason: `delegator_not_upgraded: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  if (!hasCode && !authorizationList) {
+    return {
+      isValid: false,
+      invalidReason:
+        "delegator_not_upgraded: payer account has no 7702 code and no stored authorization — sign in on the dashboard to onboard this wallet",
+    };
   }
   const minFee = usdcToAtoms("0.01");
-  const est = await deps.relayer.estimate([
-    { permissionContext: delegations, executions: buildExecutions(req, minFee, chainId) },
-  ]);
+  const est = await deps.relayer.estimate(
+    [{ permissionContext: delegations, executions: buildExecutions(req, minFee, chainId) }],
+    authorizationList,
+  );
   if (!est.success) {
     return { isValid: false, invalidReason: `simulation_failed: ${est.error ?? "unknown"}` };
   }
@@ -245,9 +284,26 @@ export async function settleX402(
   const feeData = await deps.relayer.getFeeData(CHAINS[chainId].usdc);
   let feeAtoms = jitter(usdcToAtoms(feeData.minFee));
 
+  // Re-resolved here rather than threaded from verifyX402: settle is separately
+  // callable, and the authorization must ride on the redemption that actually lands
+  // or the 7702 code never deploys and the transfer reverts.
+  const codeCheck =
+    deps.codeCheck ??
+    ((a: Address, cid: ChainId) =>
+      publicClient(cid)
+        .getCode({ address: a })
+        .then((code) => !!code && code !== "0x")
+        .catch(() => false));
+  const authorizationList = await authListFor(
+    deps,
+    body.delegator,
+    chainId,
+    await codeCheck(body.delegator, chainId),
+  );
+
   for (let attempt = 0; attempt < 3; attempt++) {
     const executions = buildExecutions(req, feeAtoms, chainId);
-    const est = await deps.relayer.estimate([{ permissionContext: delegations, executions }]);
+    const est = await deps.relayer.estimate([{ permissionContext: delegations, executions }], authorizationList);
     if (!est.success) throw new EngineError("x402", `settle estimate failed: ${est.error ?? "unknown"}`);
     const required = est.requiredPaymentAmount ? parseAtoms(est.requiredPaymentAmount) : feeAtoms;
     if (required > feeAtoms) {
@@ -258,7 +314,11 @@ export async function settleX402(
 
     const viaChain = deps.confirmViaChain ?? true;
     const sinceBlock = viaChain ? await publicClient(chainId).getBlockNumber() : 0n;
-    const requestId = await deps.relayer.send([{ permissionContext: delegations, executions }], est.context);
+    const requestId = await deps.relayer.send(
+      [{ permissionContext: delegations, executions }],
+      est.context,
+      authorizationList,
+    );
     const confirmation = viaChain
       ? await confirmRedemption(deps.relayer, { requestId, delegator: body.delegator, feeAtoms, sinceBlock, chainId })
       : await deps.relayer.waitForStatus(requestId).then((s) => ({

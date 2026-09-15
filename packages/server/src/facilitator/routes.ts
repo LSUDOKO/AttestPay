@@ -55,6 +55,10 @@ export function facilitatorRoutes(deps: AppDeps): Hono {
     feeJitter: deps.spendOverrides?.feeJitter,
     confirmViaChain: deps.spendOverrides?.confirmViaChain,
     codeCheck: deps.spendOverrides?.codeCheck,
+    // Lets a payer whose 7702 code has not landed yet settle with the authorization
+    // signed at onboard, exactly as the `pay` lane does (engine x402.authListFor).
+    store: deps.store,
+    accountNonce: deps.spendOverrides?.accountNonce,
   });
 
   app.get("/supported", (c) =>

@@ -25,6 +25,8 @@ const user = privateKeyToAccount(generatePrivateKey());
 class FakeRelayer {
   estimates: RelayerTransaction[][] = [];
   sends: RelayerTransaction[][] = [];
+  /** authorizationList seen on each send — proves the 7702 auth rides the redemption */
+  authLists: (unknown[] | undefined)[] = [];
   async getFeeData() {
     return { minFee: "0.01", rate: 1598, gasPrice: "1", expiry: 0, feeCollector: "0xE936e8FAf4A5655469182A49a505055B71C17604", targetAddress: CHAINS[8453].targetAddress, context: "ctx" } as never;
   }
@@ -32,8 +34,9 @@ class FakeRelayer {
     this.estimates.push(tx);
     return { success: true, requiredPaymentAmount: "10000", context: "ctx-ok", error: null, raw: null };
   }
-  async send(tx: RelayerTransaction[]): Promise<string> {
+  async send(tx: RelayerTransaction[], _context?: string, authorizationList?: unknown[]): Promise<string> {
     this.sends.push(tx);
+    this.authLists.push(authorizationList);
     return "0xreq";
   }
   async getStatus() {
@@ -216,5 +219,84 @@ describe("payload encoding", () => {
     expect(sent.permissionContext[1]!.signature.length).toBeGreaterThan(4);
     // decode helper used by the facilitator is the same one: smoke its error path
     expect(() => decodeX402Delegations("0x")).toThrow();
+  });
+});
+
+// Regression: a payer whose 7702 code has not landed yet. The `pay` lane has always
+// carried the onboard authorization on the first redemption (spend.ts), but the x402
+// facilitator refused outright with "delegator_not_upgraded" — so paid_fetch was
+// impossible from a fresh wallet while pay worked from the same account.
+describe("un-upgraded delegator (no 7702 code yet)", () => {
+  const freshUser = privateKeyToAccount(generatePrivateKey());
+  const auth = { chainId: "0x2105", address: CHAINS[8453].targetAddress, nonce: "0x0", yParity: "0x0", r: `0x${"1".repeat(64)}`, s: `0x${"2".repeat(64)}` };
+
+  function appFor(overrides: Partial<AppDeps["spendOverrides"]>) {
+    const s = new Store(":memory:");
+    const r = new FakeRelayer();
+    const deps: AppDeps = {
+      spendMutex: new KeyedMutex(),
+      store: s,
+      relayer: r as unknown as Relayer,
+      userSigner: freshUser,
+      adminToken: "test-admin",
+      verifyPrivyToken: null,
+      spendOverrides: { codeCheck: async () => false, confirmViaChain: false, feeJitter: (b) => b, ...overrides },
+    };
+    const srv = Bun.serve({ port: 0, fetch: createApp(deps).fetch });
+    const origin = `http://localhost:${srv.port}`;
+    // the MCP host allowlist + the seller's facilitator both read these per-request
+    process.env.ATTESTPAY_PUBLIC_MCP_BASE = origin;
+    process.env.ATTESTPAY_FACILITATOR_BASE = `${origin}/facilitator`;
+    return { s, r, srv, origin };
+  }
+
+  /** Drive a real paid_fetch so the payload decodes and the 7702 gate is actually
+   * reached; returns the tool's error message. */
+  async function paidFetchError(s: Store, origin: string, userId: string): Promise<string> {
+    const issued = await issueRootCard(
+      { store: s, userSigner: freshUser, revocationNonceOverride: 0n },
+      { userId, name: "fresh card", terms: { pay: { period: { amount: "25", seconds: 604800 } } } },
+    );
+    const client = new Client({ name: "x402-agent", version: "0.0.1" });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${origin}/c/${issued.secret}/mcp`)));
+    const res = await client.callTool({ name: "paid_fetch", arguments: { url: `${origin}/demo/premium-data` } });
+    await client.close();
+    expect(res.isError).toBe(true);
+    return parse(res).message as string;
+  }
+
+  test("a stored onboard authorization lets an un-coded payer settle", async () => {
+    const { s, r, srv, origin } = appFor({ accountNonce: async () => 0 });
+    s.upsertUser({ id: "u-fresh", address: freshUser.address, auth7702Json: JSON.stringify(auth) });
+    const issued = await issueRootCard(
+      { store: s, userSigner: freshUser, revocationNonceOverride: 0n },
+      { userId: "u-fresh", name: "fresh card", terms: { pay: { period: { amount: "25", seconds: 604800 } } } },
+    );
+    const client = new Client({ name: "x402-agent", version: "0.0.1" });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${origin}/c/${issued.secret}/mcp`)));
+    const res = await client.callTool({ name: "paid_fetch", arguments: { url: `${origin}/demo/premium-data` } });
+    expect(res.isError).toBeFalsy();
+    expect(parse(res).paid).toBe(true);
+    // the authorization actually rode along on the redemption that settled
+    expect(r.authLists.at(-1)).toEqual([auth]);
+    await client.close();
+    srv.stop(true);
+  });
+
+  test("no stored authorization still refuses, and names the fix", async () => {
+    const { s, srv, origin } = appFor({});
+    s.upsertUser({ id: "u-noauth", address: freshUser.address });
+    const msg = await paidFetchError(s, origin, "u-noauth");
+    expect(msg).toContain("delegator_not_upgraded");
+    expect(msg).toContain("sign in on the dashboard");
+    srv.stop(true);
+  });
+
+  test("a stale authorization refuses rather than reverting on-chain", async () => {
+    const { s, srv, origin } = appFor({ accountNonce: async () => 7 }); // signed nonce 0
+    s.upsertUser({ id: "u-stale", address: freshUser.address, auth7702Json: JSON.stringify(auth) });
+    const msg = await paidFetchError(s, origin, "u-stale");
+    expect(msg).toContain("stale");
+    srv.stop(true);
   });
 });
