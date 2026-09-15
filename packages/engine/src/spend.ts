@@ -520,7 +520,10 @@ export async function spend(deps: SpendDeps, cardId: string, req: SpendRequest):
     const items = planItems();
     // the fee leg rides the last item if unpinned, else its own normal-leaf item
     // (a pinned item must hold ONLY its allowance execution)
-    const feeExec = feeExecution(FEE_COLLECTOR, feeAtoms, chainId);
+    // feeCollector is chain-specific and the relayer owns the truth (it is returned by
+    // relayer_getFeeData, already fetched above). The FEE_COLLECTOR constant went stale
+    // on both chains; paying the wrong collector makes the relayer refuse the estimate.
+    const feeExec = feeExecution(feeData.feeCollector ?? FEE_COLLECTOR, feeAtoms, chainId);
     const last = items.at(-1);
     if (last && !last.pin) last.executions.push(feeExec);
     else items.push({ executions: [feeExec], pin: null });

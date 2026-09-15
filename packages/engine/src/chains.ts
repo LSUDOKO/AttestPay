@@ -11,7 +11,7 @@ export const CHAINS = {
     chain: base,
     relayer: "https://relayer.1shotapi.com/relayers",
     // 1Shot Public Relayer: every leaf delegation's delegate MUST be this address.
-    targetAddress: "0x26a529124f0bbf9af9d8f9f84a43efe47cf1199a" as Address,
+    targetAddress: "0x16E09C6b5ec2382eE79A880A50ea7Fa48045fB34" as Address,
     usdc: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as Address,
   },
   84532: {
@@ -46,7 +46,11 @@ function resolveChainId(): ChainId {
 
 export const CHAIN_ID: ChainId = resolveChainId();
 
-// Shared across both chains (verified identical).
+// FALLBACK ONLY. The fee collector is chain-specific and the relayer is its source of
+// truth (relayer_getFeeData returns it per chain); this constant went stale on both
+// chains and paying it makes the relayer refuse the transaction. Every money path reads
+// feeData.feeCollector instead — verified live 2026-09-16: Base 0x7338ffc0…,
+// Base Sepolia 0xE52FdaDb….
 export const FEE_COLLECTOR = "0xE936e8FAf4A5655469182A49a505055B71C17604" as Address;
 export const DELEGATION_MANAGER = "0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3" as Address;
 

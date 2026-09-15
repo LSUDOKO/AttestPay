@@ -199,10 +199,19 @@ async function authListFor(
   return resolveStoredAuth("x402", user, chainId, deps.accountNonce);
 }
 
-function buildExecutions(req: X402Requirement, feeAtoms: bigint, chainId: ChainId) {
+/** `feeCollector` is chain-specific and the relayer is its source of truth — it is
+ * returned by relayer_getFeeData. The FEE_COLLECTOR constant is a last-resort fallback
+ * for the verify path (which has no quote yet); paying the wrong collector makes the
+ * relayer reject the whole transaction at estimate time. */
+function buildExecutions(
+  req: X402Requirement,
+  feeAtoms: bigint,
+  chainId: ChainId,
+  feeCollector: Address = FEE_COLLECTOR,
+) {
   return [
     erc20TransferExecution(CHAINS[chainId].usdc, req.payTo as Address, parseAtoms(req.amount)),
-    erc20TransferExecution(CHAINS[chainId].usdc, FEE_COLLECTOR, feeAtoms),
+    erc20TransferExecution(CHAINS[chainId].usdc, feeCollector, feeAtoms),
   ];
 }
 
@@ -260,8 +269,17 @@ export async function verifyX402(
     };
   }
   const minFee = usdcToAtoms("0.01");
+  // Same quote the settle path uses: the relayer rejects a transaction paying any
+  // collector but its own, so simulating against the constant would pass here and fail
+  // there (or, as observed, fail here with a bare "Not Found").
+  let feeCollector = FEE_COLLECTOR;
+  try {
+    feeCollector = (await deps.relayer.getFeeData(CHAINS[chainId].usdc)).feeCollector;
+  } catch {
+    // quote unavailable: fall back to the constant and let estimate report the truth
+  }
   const est = await deps.relayer.estimate(
-    [{ permissionContext: delegations, executions: buildExecutions(req, minFee, chainId) }],
+    [{ permissionContext: delegations, executions: buildExecutions(req, minFee, chainId, feeCollector) }],
     authorizationList,
   );
   if (!est.success) {
@@ -302,7 +320,7 @@ export async function settleX402(
   );
 
   for (let attempt = 0; attempt < 3; attempt++) {
-    const executions = buildExecutions(req, feeAtoms, chainId);
+    const executions = buildExecutions(req, feeAtoms, chainId, feeData.feeCollector);
     const est = await deps.relayer.estimate([{ permissionContext: delegations, executions }], authorizationList);
     if (!est.success) throw new EngineError("x402", `settle estimate failed: ${est.error ?? "unknown"}`);
     const required = est.requiredPaymentAmount ? parseAtoms(est.requiredPaymentAmount) : feeAtoms;
