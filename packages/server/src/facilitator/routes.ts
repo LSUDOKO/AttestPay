@@ -7,6 +7,7 @@
 
 import { Hono } from "hono";
 import {
+  CHAIN_ID,
   caip2For,
   settleX402,
   verifyX402,
@@ -67,7 +68,7 @@ export function facilitatorRoutes(deps: AppDeps): Hono {
         {
           x402Version: X402_VERSION,
           scheme: "exact",
-          network: caip2For(8453),
+          network: caip2For(CHAIN_ID),
           extra: {
             assetTransferMethods: ["erc7710"],
             rail: "1shot-public-relayer",

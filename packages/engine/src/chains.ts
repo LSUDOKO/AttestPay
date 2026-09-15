@@ -24,7 +24,27 @@ export const CHAINS = {
 } as const;
 
 export type ChainId = keyof typeof CHAINS;
-export const CHAIN_ID: ChainId = 8453;
+
+/** The chain this deployment settles on. Base mainnet by default; set
+ * ATTESTPAY_CHAIN_ID=84532 to run the whole stack on Base Sepolia (free testnet USDC
+ * from a faucet, the 1Shot .dev relayer, testnet enforcer addresses — all already in
+ * CHAINS above). Every engine function takes an explicit chainId and falls back to
+ * this, so the switch is one variable rather than a code change.
+ *
+ * An unknown value is a hard failure, not a silent fallback: quietly settling on
+ * mainnet when the operator asked for a testnet is exactly the mistake worth crashing
+ * on at boot. */
+function resolveChainId(): ChainId {
+  const raw = process.env.ATTESTPAY_CHAIN_ID?.trim();
+  if (!raw) return 8453;
+  const n = Number(raw);
+  if (n in CHAINS) return n as ChainId;
+  throw new Error(
+    `ATTESTPAY_CHAIN_ID=${raw} is not a supported chain (supported: ${Object.keys(CHAINS).join(", ")})`,
+  );
+}
+
+export const CHAIN_ID: ChainId = resolveChainId();
 
 // Shared across both chains (verified identical).
 export const FEE_COLLECTOR = "0xE936e8FAf4A5655469182A49a505055B71C17604" as Address;

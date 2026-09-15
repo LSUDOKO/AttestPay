@@ -13,7 +13,7 @@ import {
   encodePaymentRequiredHeader,
   encodePaymentResponseHeader,
 } from "@x402/core/http";
-import { CHAINS, caip2For } from "@attestpay/engine";
+import { CHAIN_ID, CHAINS, caip2For } from "@attestpay/engine";
 import type { AppDeps } from "../deps";
 
 const PRICE_ATOMS = "10000"; // 0.01 USDC
@@ -25,9 +25,9 @@ export function sellerRoutes(deps: AppDeps, facilitatorBase: () => string): Hono
 
   const requirement = () => ({
     scheme: "exact",
-    network: caip2For(8453),
+    network: caip2For(CHAIN_ID),
     amount: PRICE_ATOMS,
-    asset: CHAINS[8453].usdc,
+    asset: CHAINS[CHAIN_ID].usdc,
     payTo: payTo(),
     maxTimeoutSeconds: 120,
     extra: {
