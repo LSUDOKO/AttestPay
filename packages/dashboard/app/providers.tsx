@@ -3,12 +3,19 @@
 // Privy provider. Config shape verified against @privy-io/react-auth@3.29.2 (the
 // proven Phase-C harness): embeddedWallets.ethereum.createOnLogin 'all-users' +
 // showWalletUIs:false (silent signing; the issuance ceremony is the only sheet, and
-// we keep it silent in v1 per the locked UX). Base mainnet only.
+// we keep it silent in v1 per the locked UX).
+//
+// CHAIN: must track lib/chain.ts, which reads NEXT_PUBLIC_ATTESTPAY_CHAIN_ID at build
+// time. Privy refuses to sign for a chain absent from supportedChains ("chain not
+// configured in PrivyProvider config"), so hardcoding one here silently breaks
+// onboarding the moment the rest of the stack moves to the other network.
 
 import { PrivyProvider } from "@privy-io/react-auth";
 import { MotionConfig } from "motion/react";
-import { base } from "viem/chains";
-import { PRIVY_APP_ID, PRIVY_CLIENT_ID } from "@/lib/chain";
+import { base, baseSepolia } from "viem/chains";
+import { CHAIN_ID, PRIVY_APP_ID, PRIVY_CLIENT_ID } from "@/lib/chain";
+
+const ACTIVE_CHAIN = CHAIN_ID === 84532 ? baseSepolia : base;
 
 export function Providers({ children }: { children: React.ReactNode }) {
   // Privy's embedded wallet throws ("only available over HTTPS") during render
@@ -27,8 +34,8 @@ export function Providers({ children }: { children: React.ReactNode }) {
           ethereum: { createOnLogin: "all-users" },
           showWalletUIs: false,
         },
-        defaultChain: base,
-        supportedChains: [base],
+        defaultChain: ACTIVE_CHAIN,
+        supportedChains: [ACTIVE_CHAIN],
         appearance: { theme: "light", accentColor: "#1a3300" },
       }}
     >
