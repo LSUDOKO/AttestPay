@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@metamask/delegation-core": "^2.2.1",
+    "@metamask/delegation-core": "^3.0.0",
     "@metamask/smart-accounts-kit": "1.6.0",
     "@privy-io/react-auth": "^3",
     "motion": "^12.40.0",
