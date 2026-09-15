@@ -16,6 +16,12 @@ services:
       # SQLite path. On the free plan this is ephemeral — see the disk note below.
       - key: ATTESTPAY_DB_PATH
         value: /data/attestpay.sqlite
+      # Settlement chain. 8453 = Base mainnet (real USDC); 84532 = Base Sepolia, whose
+      # USDC comes from a free faucet. MUST match the dashboard's build-time
+      # NEXT_PUBLIC_ATTESTPAY_CHAIN_ID — a signed delegation carries the chain id, so a
+      # mismatch produces signatures the relayer cannot redeem.
+      - key: ATTESTPAY_CHAIN_ID
+        value: "84532"
       # Browser origins allowed on /api/* and /shop/*: the Cloudflare Worker that
       # serves the dashboard (docs/deployment-cloudflare.md). Comma-separated, exact match.
       - key: ATTESTPAY_CORS_ORIGINS
