@@ -11,7 +11,7 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { erc20Abi, formatUnits, type Address } from "viem";
-import { publicClient, USDC_BASE } from "@/lib/chain";
+import { CHAIN_NAME, publicClient, USDC_BASE } from "@/lib/chain";
 import { copyText, IconCheck, IconCopy } from "./ui";
 
 const swapEase = [0.22, 1, 0.36, 1] as const;
@@ -157,14 +157,14 @@ export function FirstRun({
               <div className={`frbal${funded ? " funded" : ""}`} data-testid="firstrun-balance">
                 {funded && <IconCheck />}
                 <span className="frbalfig">{bal === null ? "–" : `$${bal.toFixed(2)}`}</span>
-                <span className="frballbl">{funded ? "USDC received · live on Base" : "USDC on Base"}</span>
+                <span className="frballbl">{funded ? `USDC received · live on ${CHAIN_NAME}` : `USDC on ${CHAIN_NAME}`}</span>
               </div>
               <button className="fraddr" onClick={copy} title="Copy your wallet address" data-testid="firstrun-address">
                 <span className="fraddrtext">{address}</span>
                 {copied ? <IconCheck /> : <IconCopy />}
               </button>
               <p className="frnote">
-                Send USDC on Base to this address · it lands in seconds and the figure above will tick up. Issuing a
+                Send USDC on {CHAIN_NAME} to this address · it lands in seconds and the figure above will tick up. Issuing a
                 card is free (a signature, no gas), so you can also fund later · your avatar menu keeps this address
                 and balance.
               </p>

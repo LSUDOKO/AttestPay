@@ -442,6 +442,11 @@ button.avatarbtn:hover .avatar { box-shadow: 0 0 0 3px var(--accent-tint); }
   background: var(--float); border: 1px solid var(--edge); border-radius: 12px;
   box-shadow: var(--shadow-float);
   padding: 8px;
+  /* maxHeight is set inline from the live anchor rect (Shell.tsx): the rail anchor
+     opens upward, so without a cap a tall menu runs off the top of the viewport and
+     the wallet address becomes unreachable. Scroll inside the cap instead. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .prowho { display: flex; align-items: center; gap: 9px; padding: 8px 10px 10px; border-bottom: 1px solid var(--hairline); margin-bottom: 6px; }
 .prowho .avatar { width: 24px; height: 24px; }

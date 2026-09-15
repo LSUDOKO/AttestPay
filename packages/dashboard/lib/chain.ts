@@ -15,6 +15,7 @@ export const PRIVY_CLIENT_ID =
 
 const CHAINS = {
   8453: {
+    name: "Base",
     chain: base,
     rpc: "https://mainnet.base.org",
     // Lowercase on purpose: consumers compare against user-supplied token lists
@@ -24,6 +25,7 @@ const CHAINS = {
     weth: "0x4200000000000000000000000000000000000006" as Address,
   },
   84532: {
+    name: "Base Sepolia",
     chain: baseSepolia,
     rpc: "https://sepolia.base.org",
     usdc: "0x036cbd53842c5426634e7929541ec2318f3dcf7e" as Address,
@@ -36,6 +38,11 @@ export const CHAIN_ID = (RAW_CHAIN_ID in CHAINS ? RAW_CHAIN_ID : 8453) as keyof 
 const ACTIVE = CHAINS[CHAIN_ID];
 
 export const BASE_RPC = process.env.NEXT_PUBLIC_BASE_RPC ?? ACTIVE.rpc;
+
+/** Human name of the active chain. Funding copy MUST use this: telling someone to
+ * "send USDC on Base" while the stack settles on Base Sepolia sends real money to a
+ * network the cards cannot spend on. */
+export const CHAIN_NAME = ACTIVE.name;
 
 // DelegationManager (same on Base + Base Sepolia), verified Jun 5 2026.
 export const DELEGATION_MANAGER = "0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3" as Address;

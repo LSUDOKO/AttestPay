@@ -20,7 +20,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { erc20Abi, formatUnits, type Address } from "viem";
 import { useExportWallet } from "@privy-io/react-auth";
 import { api } from "@/lib/api";
-import { publicClient, USDC_BASE, WETH_BASE } from "@/lib/chain";
+import { CHAIN_NAME, publicClient, USDC_BASE, WETH_BASE } from "@/lib/chain";
 import type { useRemit } from "../useRemit";
 import { copyText, IconCheck, IconCopy, shortHex } from "./ui";
 import { ThemeToggle } from "./Theme";
@@ -75,8 +75,8 @@ export function Cockpit({
         <div className="railfoot">
           {/* the reference: a quiet link out to /docs, riding the same utility tier
               as the network dot and the theme toggle */}
-          {/* the Base mark, at rest · no pulse: the network is a fact, not an alarm */}
-          <span className="net" title="Base · Mainnet" aria-label="Base · Mainnet">
+          {/* the network mark, at rest · no pulse: the network is a fact, not an alarm */}
+          <span className="net" title={CHAIN_NAME} aria-label={CHAIN_NAME}>
             <svg viewBox="0 0 16 16" aria-hidden>
               <circle cx="8" cy="8" r="7" fill="currentColor" />
               <rect x="1" y="7.2" width="8.6" height="1.6" fill="var(--page)" />
@@ -190,10 +190,26 @@ function ProfileMenu({
       // wide layout: the rail anchor (menu opens rightward, pinned to the avatar's
       // bottom). Top-bar layout (<1100px): the menu drops BELOW the avatar,
       // right-aligned · the rail anchor would put it off-canvas.
+      //
+      // The rail anchor grows UPWARD from an avatar that sits near the bottom of the
+      // viewport, so on a short window the menu ran off the top and the wallet address
+      // (near its end) was unreachable. Cap the height to the space actually available
+      // and let the menu scroll inside it rather than overflow the screen.
+      const GUTTER = 12;
       setAnchor(
         window.innerWidth < 1100
-          ? { right: 12, top: r.bottom + 10, transformOrigin: "right top" }
-          : { left: r.right + 14, bottom: window.innerHeight - r.bottom - 6, transformOrigin: "left bottom" },
+          ? {
+              right: 12,
+              top: r.bottom + 10,
+              maxHeight: window.innerHeight - r.bottom - 10 - GUTTER,
+              transformOrigin: "right top",
+            }
+          : {
+              left: r.right + 14,
+              bottom: window.innerHeight - r.bottom - 6,
+              maxHeight: r.bottom - 6 - GUTTER,
+              transformOrigin: "left bottom",
+            },
       );
     }
     setOpen((v) => !v);
@@ -229,7 +245,7 @@ function ProfileMenu({
                         <span className="probalfig" data-testid="wallet-balance">
                           {balFig}
                         </span>
-                        <span className="proballbl">USDC on Base</span>
+                        <span className="proballbl">USDC on {CHAIN_NAME}</span>
                       </div>
                       <div className="proassets">
                         <span className="proasset">
@@ -258,7 +274,7 @@ function ProfileMenu({
                         <span className="proaddrtext">{address}</span>
                         {copied ? <IconCheck /> : <IconCopy />}
                       </button>
-                      <p className="pronote">Send USDC on Base to this address to fund your cards</p>
+                      <p className="pronote">Send USDC on {CHAIN_NAME} to this address to fund your cards</p>
                     </div>
                   )}
                   {address && (
